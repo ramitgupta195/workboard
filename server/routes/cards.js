@@ -134,6 +134,14 @@ router.put('/:id', auth, requirePermission('edit_card'), async (req, res) => {
 
     try { getIo()?.to(`board:${result.board_id}`).emit('card:updated', result); } catch {}
 
+    // Notify assignees' My Tasks pages in real time
+    if (assigneeIds !== undefined) {
+      const allAffected = [...new Set([...assigneeIds, ...oldAssignees])];
+      allAffected.forEach(uid => {
+        try { getIo()?.to(`user:${uid}`).emit('tasks:updated'); } catch {}
+      });
+    }
+
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

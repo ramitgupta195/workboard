@@ -4,6 +4,7 @@ import { myTasksApi } from '../api';
 import Navbar from '../components/Navbar';
 import UserAvatar from '../components/UserAvatar';
 import { useAuthStore } from '../store/authStore';
+import { getSocket, joinUserRoom } from '../hooks/useSocket';
 
 const PRIORITY_COLORS = {
   none: '#94a3b8',
@@ -43,6 +44,15 @@ export default function MyTasks() {
   useEffect(() => {
     myTasksApi.list().then(setTasks).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    joinUserRoom(user.id);
+    const s = getSocket();
+    const refresh = () => myTasksApi.list().then(setTasks);
+    s.on('tasks:updated', refresh);
+    return () => s.off('tasks:updated', refresh);
+  }, [user?.id]);
 
   // Group tasks by board
   const grouped = tasks.reduce((acc, task) => {

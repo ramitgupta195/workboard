@@ -132,6 +132,7 @@ setIo(io);
 io.on('connection', socket => {
   socket.on('join:board', boardId => socket.join(`board:${boardId}`));
   socket.on('leave:board', boardId => socket.leave(`board:${boardId}`));
+  socket.on('join:user', userId => socket.join(`user:${userId}`));
 });
 
 async function main() {

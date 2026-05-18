@@ -11,6 +11,11 @@ export function getSocket() {
   return socket;
 }
 
+export function joinUserRoom(userId) {
+  if (!userId) return;
+  getSocket().emit('join:user', userId);
+}
+
 export function useSocket(boardId, handlers) {
   useEffect(() => {
     if (!boardId) return;
