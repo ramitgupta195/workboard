@@ -8,3 +8,4 @@ client/dist/
 .env
 .env.local
 server/.env
+workboard_seed.sql
