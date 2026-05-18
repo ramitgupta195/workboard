@@ -51,6 +51,25 @@ app.use('/api/invites', require('./routes/invites'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// TEMPORARY: one-shot seed endpoint — remove after use
+app.get('/api/seed', async (req, res) => {
+  if (req.query.key !== 'wb-seed-2026') return res.status(403).json({ error: 'forbidden' });
+  try {
+    const https = require('https');
+    const sql = await new Promise((resolve, reject) => {
+      https.get('https://raw.githubusercontent.com/ramitgupta195/workboard/main/workboard_seed.sql', r => {
+        let data = '';
+        r.on('data', c => data += c);
+        r.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+    db.exec(sql);
+    res.json({ ok: true, message: 'Seed complete' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Serve React frontend in production (must come after all API routes)
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../client/dist');
