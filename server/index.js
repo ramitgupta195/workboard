@@ -49,6 +49,8 @@ app.use('/api/checklists', require('./routes/checklists'));
 app.use('/api/my-tasks', require('./routes/myTasks'));
 app.use('/api/invites', require('./routes/invites'));
 
+app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
 // Serve React frontend in production (must come after all API routes)
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../client/dist');

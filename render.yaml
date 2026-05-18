@@ -2,12 +2,32 @@ services:
   - type: web
     name: workboard
     runtime: node
+    plan: free
+    region: oregon
     buildCommand: npm run build
     startCommand: node server/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+
     envVars:
+      # Auto-generated secrets (Render fills these in)
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
         generateValue: true
       - key: SESSION_SECRET
         generateValue: true
+
+      # Set these manually in the Render dashboard after first deploy
+      - key: CLIENT_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
