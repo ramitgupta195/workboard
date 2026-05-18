@@ -106,7 +106,7 @@ export const myTasksApi = {
 };
 
 export const invitesApi = {
-  create: (boardId, role = 'member') => api.post(`/boards/${boardId}/invites`, { role }),
+  create: (boardId, email, role = 'member') => api.post(`/boards/${boardId}/invites`, { email, role }),
   get: token => api.get(`/invites/${token}`),
   accept: token => api.post(`/invites/${token}/accept`),
 };

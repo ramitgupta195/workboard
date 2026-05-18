@@ -55,14 +55,11 @@ export default function Permissions() {
   const [saving, setSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
   const [loadingBoard, setLoadingBoard] = useState(false);
-  const [addEmail, setAddEmail] = useState('');
-  const [addRole, setAddRole] = useState('member');
-  const [addError, setAddError] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [inviteLink, setInviteLink] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('member');
-  const [generatingInvite, setGeneratingInvite] = useState(false);
-  const [inviteCopied, setInviteCopied] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [inviteSentTo, setInviteSentTo] = useState('');
+  const [inviteError, setInviteError] = useState('');
 
   // Load boards list
   useEffect(() => {
@@ -134,39 +131,21 @@ export default function Permissions() {
     setMembers(prev => prev.filter(m => m.id !== memberId));
   }
 
-  async function handleAddMember(e) {
+  async function handleSendInvite(e) {
     e.preventDefault();
-    if (!addEmail.trim()) return;
-    setAdding(true);
-    setAddError('');
+    if (!inviteEmail.trim()) return;
+    setSendingInvite(true);
+    setInviteError('');
+    setInviteSentTo('');
     try {
-      const m = await boardsApi.addMember(selectedBoard.id, addEmail.trim(), addRole);
-      setMembers(prev => [...prev, m]);
-      setAddEmail('');
+      await invitesApi.create(selectedBoard.id, inviteEmail.trim(), inviteRole);
+      setInviteSentTo(inviteEmail.trim());
+      setInviteEmail('');
     } catch (err) {
-      setAddError(err.error || 'User not found');
+      setInviteError(err.error || 'Failed to send invite');
     } finally {
-      setAdding(false);
+      setSendingInvite(false);
     }
-  }
-
-  async function handleGenerateInvite() {
-    setGeneratingInvite(true);
-    setInviteLink('');
-    try {
-      const { inviteUrl } = await invitesApi.create(selectedBoard.id, inviteRole);
-      setInviteLink(inviteUrl);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setGeneratingInvite(false);
-    }
-  }
-
-  async function handleCopyInvite() {
-    await navigator.clipboard.writeText(inviteLink);
-    setInviteCopied(true);
-    setTimeout(() => setInviteCopied(false), 2000);
   }
 
   const myMembership = members.find(m => m.id === user?.id);
@@ -399,21 +378,20 @@ export default function Permissions() {
                       })}
                     </div>
 
-                    {/* Add member form */}
                     {isOwner && (
-                      <form onSubmit={handleAddMember} className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
-                        <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Invite member</p>
+                      <form onSubmit={handleSendInvite} className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                        <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Send invite</p>
                         <input
                           type="email"
-                          value={addEmail}
-                          onChange={e => { setAddEmail(e.target.value); setAddError(''); }}
-                          placeholder="Email address"
+                          value={inviteEmail}
+                          onChange={e => { setInviteEmail(e.target.value); setInviteError(''); setInviteSentTo(''); }}
+                          placeholder="their@email.com"
                           className="w-full text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 mb-1.5"
                         />
                         <div className="flex gap-1.5">
                           <select
-                            value={addRole}
-                            onChange={e => setAddRole(e.target.value)}
+                            value={inviteRole}
+                            onChange={e => setInviteRole(e.target.value)}
                             className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                           >
                             <option value="admin">Admin</option>
@@ -422,56 +400,20 @@ export default function Permissions() {
                           </select>
                           <button
                             type="submit"
-                            disabled={adding || !addEmail.trim()}
+                            disabled={sendingInvite || !inviteEmail.trim()}
                             className="flex-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg transition-colors"
                           >
-                            {adding ? 'Adding…' : 'Add'}
+                            {sendingInvite ? 'Sending…' : 'Send invite'}
                           </button>
                         </div>
-                        {addError && <p className="text-red-500 text-xs mt-1.5">{addError}</p>}
-                      </form>
-                    )}
-
-                    {/* Invite link */}
-                    {isOwner && (
-                      <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
-                        <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Invite link</p>
-                        <div className="flex gap-1.5 mb-2">
-                          <select
-                            value={inviteRole}
-                            onChange={e => { setInviteRole(e.target.value); setInviteLink(''); }}
-                            className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                          >
-                            <option value="admin">Admin</option>
-                            <option value="manager">Manager</option>
-                            <option value="member">Member</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={handleGenerateInvite}
-                            disabled={generatingInvite}
-                            className="flex-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 transition-colors"
-                          >
-                            {generatingInvite ? 'Generating…' : 'Generate link'}
-                          </button>
-                        </div>
-                        {inviteLink && (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              readOnly
-                              value={inviteLink}
-                              className="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-700 dark:text-slate-300 focus:outline-none truncate"
-                            />
-                            <button
-                              onClick={handleCopyInvite}
-                              className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors font-medium"
-                            >
-                              {inviteCopied ? '✓ Copied' : 'Copy'}
-                            </button>
-                          </div>
+                        {inviteSentTo && (
+                          <p className="text-emerald-600 dark:text-emerald-400 text-xs mt-1.5 flex items-center gap-1">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                            Invite sent to {inviteSentTo}
+                          </p>
                         )}
-                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">Link expires in 7 days. Anyone with it can join as the selected role.</p>
-                      </div>
+                        {inviteError && <p className="text-red-500 text-xs mt-1.5">{inviteError}</p>}
+                      </form>
                     )}
                   </div>
                 </div>

@@ -248,6 +248,9 @@ router.get('/:id/archived', auth, (req, res) => {
 
 // ── Board invites ─────────────────────────────────────────────────────────────
 router.post('/:id/invites', auth, (req, res) => {
+  const { email, role: rawRole } = req.body;
+  if (!email) return res.status(400).json({ error: 'Email is required' });
+
   const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
   if (!board) return res.status(404).json({ error: 'Board not found' });
 
@@ -256,25 +259,40 @@ router.post('/:id/invites', auth, (req, res) => {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
 
+  const role = rawRole && ['member', 'manager', 'admin'].includes(rawRole) ? rawRole : 'member';
   const token = crypto.randomUUID();
-  const role = req.body.role && ['viewer', 'member', 'manager', 'admin'].includes(req.body.role) ? req.body.role : 'member';
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  db.prepare('INSERT INTO board_invites (token, board_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
-    .run(token, req.params.id, role, req.user.id, expiresAt);
+  const inviter = db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
+  const inviterName = inviter?.name || 'Someone';
+
+  db.prepare('INSERT INTO board_invites (token, board_id, role, created_by, invited_email, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(token, req.params.id, role, req.user.id, email.toLowerCase().trim(), expiresAt);
 
   const inviteUrl = `${CLIENT_URL}/invite/${token}`;
 
-  const inviter = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
-  if (inviter?.email) {
-    sendEmail(inviter.email, `Invite link for "${board.title}"`,
-      `<p>Here is the invite link for <strong>${board.title}</strong>:</p>
-       <p><a href="${inviteUrl}">${inviteUrl}</a></p>
-       <p>This link expires in 7 days and grants <strong>${role}</strong> access.</p>`
-    );
-  }
+  sendEmail(email,
+    `You've been invited to join "${board.title}" on Workboard`,
+    `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;background:#f8fafc;padding:0">
+      <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:40px 32px;border-radius:12px 12px 0 0;text-align:center">
+        <div style="display:inline-flex;align-items:center;justify-content:center;width:52px;height:52px;background:rgba(255,255,255,0.15);border-radius:12px;margin-bottom:12px">
+          <span style="font-size:24px">📋</span>
+        </div>
+        <h1 style="color:white;margin:0;font-size:22px;font-weight:700">You're invited to Workboard</h1>
+      </div>
+      <div style="background:white;padding:32px;border-radius:0 0 12px 12px;box-shadow:0 4px 24px rgba(0,0,0,0.06)">
+        <p style="color:#475569;font-size:15px;margin:0 0 8px"><strong>${inviterName}</strong> has invited you to join:</p>
+        <div style="background:#f1f5f9;border-radius:10px;padding:20px;margin:16px 0;text-align:center">
+          <p style="font-size:20px;font-weight:700;color:#0f172a;margin:0 0 8px">${board.title}</p>
+          <span style="display:inline-block;background:#ede9fe;color:#5b21b6;font-size:12px;font-weight:600;padding:4px 12px;border-radius:999px;text-transform:capitalize">${role}</span>
+        </div>
+        <a href="${inviteUrl}" style="display:block;text-align:center;background:#4f46e5;color:white;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin:24px 0">Accept Invitation →</a>
+        <p style="color:#94a3b8;font-size:12px;text-align:center;margin:0">This invite expires in 7 days. If you weren't expecting this, you can ignore it.</p>
+      </div>
+    </div>`
+  );
 
-  res.json({ token, inviteUrl });
+  res.json({ success: true, inviteUrl });
 });
 
 router.get('/invites/:token', (req, res) => {

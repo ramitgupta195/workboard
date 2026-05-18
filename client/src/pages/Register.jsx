@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 
@@ -20,6 +20,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const login = useAuthStore(s => s.login);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -29,7 +30,8 @@ export default function Register() {
     try {
       const { user, token } = await authApi.register(form);
       login(user, token);
-      navigate('/');
+      const redirect = searchParams.get('redirect');
+      navigate(redirect || '/');
     } catch (err) {
       setError(err.error || 'Registration failed');
     } finally {

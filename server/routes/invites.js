@@ -9,7 +9,8 @@ router.get('/:token', (req, res) => {
   if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite expired' });
 
   const board = db.prepare('SELECT id, title FROM boards WHERE id = ?').get(invite.board_id);
-  res.json({ board, role: invite.role });
+  const inviter = db.prepare('SELECT name FROM users WHERE id = ?').get(invite.created_by);
+  res.json({ board, role: invite.role, inviterName: inviter?.name || null });
 });
 
 router.post('/:token/accept', auth, (req, res) => {

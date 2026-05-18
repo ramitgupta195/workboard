@@ -205,4 +205,7 @@ db.exec(`
   );
 `);
 
+try { db.exec('ALTER TABLE board_invites ADD COLUMN invited_email TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE board_invites ADD COLUMN inviter_name TEXT'); } catch (_) {}
+
 module.exports = db;

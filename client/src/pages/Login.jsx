@@ -31,7 +31,8 @@ export default function Login() {
     try {
       const { user, token } = await authApi.login(form);
       login(user, token);
-      navigate('/');
+      const redirect = searchParams.get('redirect');
+      navigate(redirect || '/');
     } catch (err) {
       setError(err.error || 'Login failed');
     } finally {
