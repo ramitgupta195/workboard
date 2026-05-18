@@ -22,7 +22,6 @@ function makeToken(user) {
   );
 }
 
-// ── Google OAuth strategy (only if credentials are configured) ───────────────
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy(
     {
@@ -30,29 +29,28 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
     },
-    (accessToken, refreshToken, profile, done) => {
+    async (accessToken, refreshToken, profile, done) => {
       try {
         const email = profile.emails?.[0]?.value;
         const googleId = profile.id;
         const name = profile.displayName || email?.split('@')[0] || 'User';
 
-        let user = db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
+        let user = await db.prepare('SELECT * FROM users WHERE google_id = ?').get(googleId);
 
         if (!user && email) {
-          // Link to existing email/password account if email matches
-          user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+          user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
           if (user) {
-            db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(googleId, user.id);
-            user = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
+            await db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(googleId, user.id);
+            user = await db.prepare('SELECT * FROM users WHERE id = ?').get(user.id);
           }
         }
 
         if (!user) {
           const id = uuidv4();
           const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
-          db.prepare('INSERT INTO users (id, name, email, password_hash, avatar_color, google_id) VALUES (?, ?, ?, ?, ?, ?)')
+          await db.prepare('INSERT INTO users (id, name, email, password_hash, avatar_color, google_id) VALUES (?, ?, ?, ?, ?, ?)')
             .run(id, name, email || '', '', avatar_color, googleId);
-          user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+          user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
         }
 
         return done(null, user);
@@ -64,114 +62,148 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 passport.serializeUser((user, done) => done(null, user.id));
-passport.deserializeUser((id, done) => done(null, db.prepare('SELECT * FROM users WHERE id = ?').get(id)));
-
-// ── Email / password ─────────────────────────────────────────────────────────
-router.post('/register', (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ error: 'All fields required' });
-
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-  if (existing) return res.status(400).json({ error: 'Email already in use' });
-
-  const id = uuidv4();
-  const password_hash = bcrypt.hashSync(password, 10);
-  const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
-
-  db.prepare('INSERT INTO users (id, name, email, password_hash, avatar_color) VALUES (?, ?, ?, ?, ?)')
-    .run(id, name, email, password_hash, avatar_color);
-
-  const token = makeToken({ id, name, email, avatar_color });
-  res.json({ token, user: { id, name, email, avatar_color } });
-});
-
-router.post('/login', (req, res) => {
-  const { email, password } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
-
-  if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Invalid email or password' });
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+    done(null, user);
+  } catch (e) {
+    done(e);
   }
-
-  const token = makeToken(user);
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, avatar_color: user.avatar_color } });
 });
 
-router.get('/me', authMiddleware, (req, res) => {
-  const user = db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
-  res.json(user);
-});
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) return res.status(400).json({ error: 'All fields required' });
 
-// ── Password reset ───────────────────────────────────────────────────────────
-router.post('/forgot-password', (req, res) => {
-  const { email } = req.body;
-  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-  if (user) {
-    const token = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)')
-      .run(token, user.id, expiresAt);
-    const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
-    sendEmail(email, 'Reset your Workboard password',
-      `<p>Click the link below to reset your password. It expires in 1 hour.</p>
-       <p><a href="${resetLink}">${resetLink}</a></p>
-       <p>If you did not request this, ignore this email.</p>`
-    );
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existing) return res.status(400).json({ error: 'Email already in use' });
+
+    const id = uuidv4();
+    const password_hash = bcrypt.hashSync(password, 10);
+    const avatar_color = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+
+    await db.prepare('INSERT INTO users (id, name, email, password_hash, avatar_color) VALUES (?, ?, ?, ?, ?)')
+      .run(id, name, email, password_hash, avatar_color);
+
+    const token = makeToken({ id, name, email, avatar_color });
+    res.json({ token, user: { id, name, email, avatar_color } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json({ message: 'If that email exists, a reset link has been sent.' });
 });
 
-router.post('/reset-password', (req, res) => {
-  const { token, password } = req.body;
-  if (!token || !password) return res.status(400).json({ error: 'Token and password are required' });
+router.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
-  const row = db.prepare('SELECT * FROM password_reset_tokens WHERE token = ?').get(token);
-  if (!row) return res.status(400).json({ error: 'Invalid or expired token' });
-  if (row.used) return res.status(400).json({ error: 'Token already used' });
-  if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Token expired' });
+    if (!user || !user.password_hash || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
-  const password_hash = bcrypt.hashSync(password, 10);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, row.user_id);
-  db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
-
-  res.json({ message: 'Password updated' });
+    const token = makeToken(user);
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email, avatar_color: user.avatar_color } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── Profile & password update (requires auth) ────────────────────────────────
-router.put('/profile', authMiddleware, (req, res) => {
-  const { name, avatar_color } = req.body;
-  db.prepare('UPDATE users SET name = COALESCE(?, name), avatar_color = COALESCE(?, avatar_color) WHERE id = ?')
-    .run(name || null, avatar_color || null, req.user.id);
-  const user = db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
-  res.json(user);
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    const user = await db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.put('/change-password', authMiddleware, (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both currentPassword and newPassword are required' });
-
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
-  if (!user.password_hash) return res.status(400).json({ error: 'Cannot change password for Google-only accounts' });
-  if (!bcrypt.compareSync(currentPassword, user.password_hash)) return res.status(400).json({ error: 'Current password is incorrect' });
-
-  const password_hash = bcrypt.hashSync(newPassword, 10);
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, req.user.id);
-  res.json({ message: 'Password changed' });
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (user) {
+      const token = crypto.randomUUID();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)')
+        .run(token, user.id, expiresAt);
+      const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
+      sendEmail(email, 'Reset your Workboard password',
+        `<p>Click the link below to reset your password. It expires in 1 hour.</p>
+         <p><a href="${resetLink}">${resetLink}</a></p>
+         <p>If you did not request this, ignore this email.</p>`
+      );
+    }
+    res.json({ message: 'If that email exists, a reset link has been sent.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── Email verification ────────────────────────────────────────────────────────
-router.get('/verify-email', (req, res) => {
-  const { token } = req.query;
-  if (!token) return res.status(400).json({ error: 'Token required' });
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: 'Token and password are required' });
 
-  const user = db.prepare('SELECT id FROM users WHERE verify_token = ?').get(token);
-  if (!user) return res.status(400).json({ error: 'Invalid or already used verification token' });
+    const row = await db.prepare('SELECT * FROM password_reset_tokens WHERE token = ?').get(token);
+    if (!row) return res.status(400).json({ error: 'Invalid or expired token' });
+    if (row.used) return res.status(400).json({ error: 'Token already used' });
+    if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Token expired' });
 
-  db.prepare("UPDATE users SET email_verified = 1, verify_token = NULL WHERE id = ?").run(user.id);
-  res.redirect(`${CLIENT_URL}/?verified=1`);
+    const password_hash = bcrypt.hashSync(password, 10);
+    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, row.user_id);
+    await db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
+
+    res.json({ message: 'Password updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── Google OAuth ─────────────────────────────────────────────────────────────
+router.put('/profile', authMiddleware, async (req, res) => {
+  try {
+    const { name, avatar_color } = req.body;
+    await db.prepare('UPDATE users SET name = COALESCE(?, name), avatar_color = COALESCE(?, avatar_color) WHERE id = ?')
+      .run(name || null, avatar_color || null, req.user.id);
+    const user = await db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both currentPassword and newPassword are required' });
+
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    if (!user.password_hash) return res.status(400).json({ error: 'Cannot change password for Google-only accounts' });
+    if (!bcrypt.compareSync(currentPassword, user.password_hash)) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    const password_hash = bcrypt.hashSync(newPassword, 10);
+    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, req.user.id);
+    res.json({ message: 'Password changed' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/verify-email', async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: 'Token required' });
+
+    const user = await db.prepare('SELECT id FROM users WHERE verify_token = ?').get(token);
+    if (!user) return res.status(400).json({ error: 'Invalid or already used verification token' });
+
+    await db.prepare('UPDATE users SET email_verified = 1, verify_token = NULL WHERE id = ?').run(user.id);
+    res.redirect(`${CLIENT_URL}/?verified=1`);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/google', (req, res, next) => {
   if (!process.env.GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'Google OAuth not configured' });

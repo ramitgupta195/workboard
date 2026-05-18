@@ -25,7 +25,7 @@ async function sendNotificationEmail(userId, type, message, cardId, boardId) {
   const t = getTransporter();
   if (!t) return;
   try {
-    const user = db.prepare('SELECT email, name FROM users WHERE id = ?').get(userId);
+    const user = await db.prepare('SELECT email, name FROM users WHERE id = ?').get(userId);
     if (!user?.email) return;
 
     const icon = ICONS[type] || '🔔';

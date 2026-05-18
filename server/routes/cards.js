@@ -5,7 +5,7 @@ const fs = require('fs');
 const multer = require('multer');
 const db = require('../db/database');
 const auth = require('../middleware/auth');
-const { requirePermission } = require('../middleware/boardPermission');
+const { requirePermission, getPermissions } = require('../middleware/boardPermission');
 const { runTrigger } = require('../engine/automations');
 const { notify } = require('../utils/notify');
 const { getIo } = require('../io');
@@ -24,9 +24,9 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-function enrichCard(card) {
-  const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
-  const assignees = db.prepare(`
+async function enrichCard(card) {
+  const labels = await db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
+  const assignees = await db.prepare(`
     SELECT u.id, u.name, u.avatar_color FROM users u
     JOIN card_assignees ca ON u.id = ca.user_id
     WHERE ca.card_id = ?
@@ -39,305 +39,339 @@ function getFullCard(id) {
 }
 
 function logActivity(cardId, userId, type, data = {}) {
-  try {
-    db.prepare('INSERT INTO card_activities (id, card_id, user_id, type, data) VALUES (?, ?, ?, ?, ?)')
-      .run(require('crypto').randomUUID(), cardId, userId, type, JSON.stringify(data));
-  } catch {}
+  db.prepare('INSERT INTO card_activities (id, card_id, user_id, type, data) VALUES (?, ?, ?, ?, ?)')
+    .run(require('crypto').randomUUID(), cardId, userId, type, JSON.stringify(data))
+    .catch(() => {});
 }
 
-// Create card in column
-router.post('/columns/:columnId/cards', auth, requirePermission('create_card'), (req, res) => {
-  const { title } = req.body;
-  if (!title) return res.status(400).json({ error: 'Title is required' });
+router.post('/columns/:columnId/cards', auth, requirePermission('create_card'), async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
 
-  const column = db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId);
-  if (!column) return res.status(404).json({ error: 'Column not found' });
+    const column = await db.prepare('SELECT * FROM columns WHERE id = ?').get(req.params.columnId);
+    if (!column) return res.status(404).json({ error: 'Column not found' });
 
-  const maxPos = db.prepare('SELECT MAX(position) as max FROM cards WHERE column_id = ?').get(req.params.columnId);
-  const position = (maxPos.max ?? -1) + 1;
-  const id = uuidv4();
+    const maxPos = await db.prepare('SELECT MAX(position) as max FROM cards WHERE column_id = ?').get(req.params.columnId);
+    const position = (maxPos?.max ?? -1) + 1;
+    const id = uuidv4();
 
-  db.prepare('INSERT INTO cards (id, column_id, board_id, title, priority, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.columnId, column.board_id, title, 'none', position, req.user.id);
+    await db.prepare('INSERT INTO cards (id, column_id, board_id, title, priority, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.params.columnId, column.board_id, title, 'none', position, req.user.id);
 
-  const card = getFullCard(id);
-  const result = enrichCard(card);
+    const card = await getFullCard(id);
+    const result = await enrichCard(card);
 
-  try { runTrigger('card_created', card, { column_id: req.params.columnId }, db); } catch {}
+    runTrigger('card_created', card, { column_id: req.params.columnId }).catch(() => {});
+    logActivity(id, req.user.id, 'created', { title });
 
-  logActivity(id, req.user.id, 'created', { title });
+    try { getIo()?.to(`board:${column.board_id}`).emit('card:created', result); } catch {}
 
-  try { getIo()?.to(`board:${column.board_id}`).emit('card:created', result); } catch {}
-
-  res.json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Get single card
-router.get('/:id', auth, (req, res) => {
-  const card = getFullCard(req.params.id);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
-  res.json(enrichCard(card));
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const card = await getFullCard(req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    res.json(await enrichCard(card));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// Update card
-router.put('/:id', auth, requirePermission('edit_card'), (req, res) => {
-  const { title, description, priority, due_date, labels, assigneeIds } = req.body;
-  const oldCard = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
-  const oldAssignees = db.prepare('SELECT user_id FROM card_assignees WHERE card_id = ?').all(req.params.id).map(r => r.user_id);
+router.put('/:id', auth, requirePermission('edit_card'), async (req, res) => {
+  try {
+    const { title, description, priority, due_date, labels, assigneeIds } = req.body;
+    const oldCard = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+    const oldAssigneeRows = await db.prepare('SELECT user_id FROM card_assignees WHERE card_id = ?').all(req.params.id);
+    const oldAssignees = oldAssigneeRows.map(r => r.user_id);
 
-  db.prepare(`UPDATE cards SET title = ?, description = ?, priority = ?, due_date = ?, updated_at = datetime('now') WHERE id = ?`)
-    .run(title, description ?? '', priority ?? 'none', due_date ?? null, req.params.id);
+    await db.prepare(`UPDATE cards SET title = ?, description = ?, priority = ?, due_date = ?, updated_at = NOW() WHERE id = ?`)
+      .run(title, description ?? '', priority ?? 'none', due_date ?? null, req.params.id);
 
-  if (labels !== undefined) {
-    db.prepare('DELETE FROM card_labels WHERE card_id = ?').run(req.params.id);
-    if (labels.length > 0) {
-      const insertLabel = db.prepare('INSERT INTO card_labels (id, card_id, name, color) VALUES (?, ?, ?, ?)');
-      labels.forEach(l => insertLabel.run(uuidv4(), req.params.id, l.name, l.color));
-    }
-  }
-
-  if (assigneeIds !== undefined) {
-    db.prepare('DELETE FROM card_assignees WHERE card_id = ?').run(req.params.id);
-    if (assigneeIds.length > 0) {
-      const insertAssignee = db.prepare('INSERT INTO card_assignees (card_id, user_id) VALUES (?, ?)');
-      assigneeIds.forEach(uid => insertAssignee.run(req.params.id, uid));
-    }
-  }
-
-  const card = getFullCard(req.params.id);
-  const result = enrichCard(card);
-
-  if (assigneeIds !== undefined) {
-    const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
-    assigneeIds.forEach(uid => {
-      if (!oldAssignees.includes(uid) && uid !== req.user.id) {
-        notify(uid, 'assigned', `${actor?.name || 'Someone'} assigned you to "${card.title}"`, req.params.id, card.board_id);
-      }
-    });
-  }
-
-  // Fire priority_changed trigger if priority changed
-  if (oldCard && priority && oldCard.priority !== priority) {
-    try { runTrigger('priority_changed', card, { from_priority: oldCard.priority, to_priority: priority }, db); } catch {}
-  }
-
-  if (title && title !== oldCard.title) logActivity(req.params.id, req.user.id, 'title_changed', { from: oldCard.title, to: title });
-  if (priority && priority !== oldCard.priority) logActivity(req.params.id, req.user.id, 'priority_changed', { from: oldCard.priority, to: priority });
-  if (due_date !== undefined && due_date !== oldCard.due_date) logActivity(req.params.id, req.user.id, 'due_date_changed', { from: oldCard.due_date, to: due_date });
-  if (assigneeIds !== undefined) {
-    const added = assigneeIds.filter(uid => !oldAssignees.includes(uid));
-    const removed = oldAssignees.filter(uid => !assigneeIds.includes(uid));
-    if (added.length || removed.length) logActivity(req.params.id, req.user.id, 'assignees_changed', { added, removed });
-  }
-
-  try { getIo()?.to(`board:${result.board_id}`).emit('card:updated', result); } catch {}
-
-  res.json(result);
-});
-
-// Delete card
-router.delete('/:id', auth, requirePermission('delete_card'), (req, res) => {
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
-  db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id);
-  if (card) {
-    try { getIo()?.to(`board:${card.board_id}`).emit('card:deleted', { cardId: card.id, columnId: card.column_id, boardId: card.board_id }); } catch {}
-  }
-  res.json({ success: true });
-});
-
-// Move card (drag & drop)
-router.post('/move', auth, (req, res) => {
-  const { cardId, destColumnId, columnOrders } = req.body;
-
-  const oldCard = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId);
-  if (!oldCard) return res.status(404).json({ error: 'Card not found' });
-
-  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(oldCard.board_id, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a board member' });
-
-  if (membership.role !== 'owner') {
-    const { getPermissions } = require('../middleware/boardPermission');
-    const perms = getPermissions(oldCard.board_id, membership.role);
-    if (!perms.move_card) return res.status(403).json({ error: 'Insufficient permissions' });
-    if (!perms.move_any_card) {
-      const isAssigned = db.prepare('SELECT 1 FROM card_assignees WHERE card_id = ? AND user_id = ?').get(cardId, req.user.id);
-      if (oldCard.created_by !== req.user.id && !isAssigned) {
-        return res.status(403).json({ error: 'You can only move cards you created or are assigned to' });
+    if (labels !== undefined) {
+      await db.prepare('DELETE FROM card_labels WHERE card_id = ?').run(req.params.id);
+      for (const l of labels) {
+        await db.prepare('INSERT INTO card_labels (id, card_id, name, color) VALUES (?, ?, ?, ?)').run(uuidv4(), req.params.id, l.name, l.color);
       }
     }
-  }
 
-  const sourceColumnId = oldCard?.column_id;
-
-  const tx = db.transaction(() => {
-    if (oldCard && oldCard.column_id !== destColumnId) {
-      db.prepare('UPDATE cards SET column_id = ? WHERE id = ?').run(destColumnId, cardId);
+    if (assigneeIds !== undefined) {
+      await db.prepare('DELETE FROM card_assignees WHERE card_id = ?').run(req.params.id);
+      for (const uid of assigneeIds) {
+        await db.prepare('INSERT INTO card_assignees (card_id, user_id) VALUES (?, ?)').run(req.params.id, uid);
+      }
     }
-    for (const [colId, cardIds] of Object.entries(columnOrders)) {
-      cardIds.forEach((id, position) => {
-        db.prepare('UPDATE cards SET position = ? WHERE id = ?').run(position, id);
+
+    const card = await getFullCard(req.params.id);
+    const result = await enrichCard(card);
+
+    if (assigneeIds !== undefined) {
+      const actor = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
+      assigneeIds.forEach(uid => {
+        if (!oldAssignees.includes(uid) && uid !== req.user.id) {
+          notify(uid, 'assigned', `${actor?.name || 'Someone'} assigned you to "${card.title}"`, req.params.id, card.board_id);
+        }
       });
     }
-  });
 
-  tx();
+    if (oldCard && priority && oldCard.priority !== priority) {
+      runTrigger('priority_changed', card, { from_priority: oldCard.priority, to_priority: priority }).catch(() => {});
+    }
 
-  // Fire card_moved trigger if column changed
-  if (sourceColumnId && sourceColumnId !== destColumnId) {
-    const movedCard = db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId);
-    try {
-      runTrigger('card_moved', movedCard, { from_column_id: sourceColumnId, to_column_id: destColumnId }, db);
-    } catch {}
+    if (title && title !== oldCard.title) logActivity(req.params.id, req.user.id, 'title_changed', { from: oldCard.title, to: title });
+    if (priority && priority !== oldCard.priority) logActivity(req.params.id, req.user.id, 'priority_changed', { from: oldCard.priority, to: priority });
+    if (due_date !== undefined && due_date !== oldCard.due_date) logActivity(req.params.id, req.user.id, 'due_date_changed', { from: oldCard.due_date, to: due_date });
+    if (assigneeIds !== undefined) {
+      const added = assigneeIds.filter(uid => !oldAssignees.includes(uid));
+      const removed = oldAssignees.filter(uid => !assigneeIds.includes(uid));
+      if (added.length || removed.length) logActivity(req.params.id, req.user.id, 'assignees_changed', { added, removed });
+    }
 
-    const destCol = db.prepare('SELECT title FROM columns WHERE id = ?').get(destColumnId);
-    const assignees = db.prepare('SELECT user_id FROM card_assignees WHERE card_id = ?').all(cardId);
-    assignees.forEach(a => {
-      if (a.user_id !== req.user.id) {
-        notify(a.user_id, 'card_moved', `"${movedCard?.title}" was moved to "${destCol?.title || 'a column'}"`, cardId, movedCard?.board_id);
+    try { getIo()?.to(`board:${result.board_id}`).emit('card:updated', result); } catch {}
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:id', auth, requirePermission('delete_card'), async (req, res) => {
+  try {
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+    await db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id);
+    if (card) {
+      try { getIo()?.to(`board:${card.board_id}`).emit('card:deleted', { cardId: card.id, columnId: card.column_id, boardId: card.board_id }); } catch {}
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/move', auth, async (req, res) => {
+  try {
+    const { cardId, destColumnId, columnOrders } = req.body;
+
+    const oldCard = await db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId);
+    if (!oldCard) return res.status(404).json({ error: 'Card not found' });
+
+    const membership = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(oldCard.board_id, req.user.id);
+    if (!membership) return res.status(403).json({ error: 'Not a board member' });
+
+    if (membership.role !== 'owner') {
+      const perms = await getPermissions(oldCard.board_id, membership.role);
+      if (!perms.move_card) return res.status(403).json({ error: 'Insufficient permissions' });
+      if (!perms.move_any_card) {
+        const isAssigned = await db.prepare('SELECT 1 FROM card_assignees WHERE card_id = ? AND user_id = ?').get(cardId, req.user.id);
+        if (oldCard.created_by !== req.user.id && !isAssigned) {
+          return res.status(403).json({ error: 'You can only move cards you created or are assigned to' });
+        }
+      }
+    }
+
+    const sourceColumnId = oldCard.column_id;
+
+    await db.withTransaction(async client => {
+      if (oldCard.column_id !== destColumnId) {
+        await client.query('UPDATE cards SET column_id = $1 WHERE id = $2', [destColumnId, cardId]);
+      }
+      for (const [, cardIds] of Object.entries(columnOrders)) {
+        for (let i = 0; i < cardIds.length; i++) {
+          await client.query('UPDATE cards SET position = $1 WHERE id = $2', [i, cardIds[i]]);
+        }
       }
     });
 
-    const srcColTitle = db.prepare('SELECT title FROM columns WHERE id = ?').get(sourceColumnId)?.title;
-    logActivity(cardId, req.user.id, 'moved', { from: srcColTitle, to: destCol?.title });
+    if (sourceColumnId && sourceColumnId !== destColumnId) {
+      const movedCard = await db.prepare('SELECT * FROM cards WHERE id = ?').get(cardId);
+      runTrigger('card_moved', movedCard, { from_column_id: sourceColumnId, to_column_id: destColumnId }).catch(() => {});
 
-    try { getIo()?.to(`board:${oldCard.board_id}`).emit('card:moved', { cardId, destColumnId, columnOrders }); } catch {}
+      const destCol = await db.prepare('SELECT title FROM columns WHERE id = ?').get(destColumnId);
+      const assignees = await db.prepare('SELECT user_id FROM card_assignees WHERE card_id = ?').all(cardId);
+      assignees.forEach(a => {
+        if (a.user_id !== req.user.id) {
+          notify(a.user_id, 'card_moved', `"${movedCard?.title}" was moved to "${destCol?.title || 'a column'}"`, cardId, movedCard?.board_id);
+        }
+      });
+
+      const srcColTitle = (await db.prepare('SELECT title FROM columns WHERE id = ?').get(sourceColumnId))?.title;
+      logActivity(cardId, req.user.id, 'moved', { from: srcColTitle, to: destCol?.title });
+
+      try { getIo()?.to(`board:${oldCard.board_id}`).emit('card:moved', { cardId, destColumnId, columnOrders }); } catch {}
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  res.json({ success: true });
 });
 
-// Get comments for a card
-router.get('/:cardId/comments', auth, (req, res) => {
-  const comments = db.prepare(`
-    SELECT cm.*, u.name as user_name, u.avatar_color as user_color
-    FROM comments cm
-    JOIN users u ON cm.user_id = u.id
-    WHERE cm.card_id = ?
-    ORDER BY cm.created_at ASC
-  `).all(req.params.cardId);
-  res.json(comments);
-});
-
-// Add comment
-router.post('/:cardId/comments', auth, requirePermission('comment'), (req, res) => {
-  const { content } = req.body;
-  if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
-
-  const id = uuidv4();
-  db.prepare('INSERT INTO comments (id, card_id, user_id, content) VALUES (?, ?, ?, ?)')
-    .run(id, req.params.cardId, req.user.id, content.trim());
-
-  const comment = db.prepare(`
-    SELECT cm.*, u.name as user_name, u.avatar_color as user_color
-    FROM comments cm JOIN users u ON cm.user_id = u.id
-    WHERE cm.id = ?
-  `).get(id);
-
-  logActivity(req.params.cardId, req.user.id, 'commented', { preview: content.trim().slice(0, 60) });
-
-  // Notify @mentioned board members
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
-  if (card && content.includes('@')) {
-    const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
-    const boardMembers = db.prepare(`
-      SELECT u.id, lower(u.name) as lname FROM users u
-      JOIN board_members bm ON u.id = bm.user_id
-      WHERE bm.board_id = ?
-    `).all(card.board_id);
-    const notified = new Set();
-    boardMembers.forEach(member => {
-      if (member.id === req.user.id || notified.has(member.id)) return;
-      // Escape regex special chars in name, require word boundary after
-      const escaped = member.lname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp('@' + escaped + '(?:\\s|$)', 'i');
-      if (re.test(content)) {
-        notified.add(member.id);
-        notify(member.id, 'mention', `${actor?.name || 'Someone'} mentioned you in a comment on "${card.title}"`, card.id, card.board_id);
-      }
-    });
+router.get('/:cardId/comments', auth, async (req, res) => {
+  try {
+    const comments = await db.prepare(`
+      SELECT cm.*, u.name as user_name, u.avatar_color as user_color
+      FROM comments cm
+      JOIN users u ON cm.user_id = u.id
+      WHERE cm.card_id = ?
+      ORDER BY cm.created_at ASC
+    `).all(req.params.cardId);
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  res.json(comment);
 });
 
-// ── Archive / unarchive ───────────────────────────────────────────────────────
-router.put('/:id/archive', auth, requirePermission('delete_card'), (req, res) => {
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
+router.post('/:cardId/comments', auth, requirePermission('comment'), async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content required' });
 
-  db.prepare("UPDATE cards SET archived_at = datetime('now') WHERE id = ?").run(req.params.id);
-  const updated = enrichCard(getFullCard(req.params.id));
-  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
-  res.json(updated);
+    const id = uuidv4();
+    await db.prepare('INSERT INTO comments (id, card_id, user_id, content) VALUES (?, ?, ?, ?)')
+      .run(id, req.params.cardId, req.user.id, content.trim());
+
+    const comment = await db.prepare(`
+      SELECT cm.*, u.name as user_name, u.avatar_color as user_color
+      FROM comments cm JOIN users u ON cm.user_id = u.id
+      WHERE cm.id = ?
+    `).get(id);
+
+    logActivity(req.params.cardId, req.user.id, 'commented', { preview: content.trim().slice(0, 60) });
+
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+    if (card && content.includes('@')) {
+      const actor = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
+      const boardMembers = await db.prepare(`
+        SELECT u.id, lower(u.name) as lname FROM users u
+        JOIN board_members bm ON u.id = bm.user_id
+        WHERE bm.board_id = ?
+      `).all(card.board_id);
+      const notified = new Set();
+      boardMembers.forEach(member => {
+        if (member.id === req.user.id || notified.has(member.id)) return;
+        const escaped = member.lname.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp('@' + escaped + '(?:\\s|$)', 'i');
+        if (re.test(content)) {
+          notified.add(member.id);
+          notify(member.id, 'mention', `${actor?.name || 'Someone'} mentioned you in a comment on "${card.title}"`, card.id, card.board_id);
+        }
+      });
+    }
+
+    res.json(comment);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.put('/:id/unarchive', auth, (req, res) => {
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
+router.put('/:id/archive', auth, requirePermission('delete_card'), async (req, res) => {
+  try {
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
 
-  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(card.board_id, req.user.id);
-  if (!membership) return res.status(403).json({ error: 'Not a board member' });
-
-  db.prepare('UPDATE cards SET archived_at = NULL WHERE id = ?').run(req.params.id);
-  const updated = enrichCard(getFullCard(req.params.id));
-  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
-  res.json(updated);
+    await db.prepare('UPDATE cards SET archived_at = NOW() WHERE id = ?').run(req.params.id);
+    const updated = await enrichCard(await getFullCard(req.params.id));
+    try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── Cover image ───────────────────────────────────────────────────────────────
-router.put('/:id/cover', auth, requirePermission('edit_card'), (req, res) => {
-  const { attachmentId } = req.body;
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
+router.put('/:id/unarchive', auth, async (req, res) => {
+  try {
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
 
-  db.prepare('UPDATE cards SET cover_image = ? WHERE id = ?').run(attachmentId || null, req.params.id);
-  const updated = enrichCard(getFullCard(req.params.id));
-  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
-  res.json(updated);
+    const membership = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(card.board_id, req.user.id);
+    if (!membership) return res.status(403).json({ error: 'Not a board member' });
+
+    await db.prepare('UPDATE cards SET archived_at = NULL WHERE id = ?').run(req.params.id);
+    const updated = await enrichCard(await getFullCard(req.params.id));
+    try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ── Attachments ───────────────────────────────────────────────────────────────
-router.get('/:cardId/attachments', auth, (req, res) => {
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
+router.put('/:id/cover', auth, requirePermission('edit_card'), async (req, res) => {
+  try {
+    const { attachmentId } = req.body;
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
 
-  const attachments = db.prepare('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at').all(req.params.cardId);
-  res.json(attachments.map(a => ({ ...a, url: '/uploads/' + a.filename })));
+    await db.prepare('UPDATE cards SET cover_image = ? WHERE id = ?').run(attachmentId || null, req.params.id);
+    const updated = await enrichCard(await getFullCard(req.params.id));
+    try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'File is required' });
+router.get('/:cardId/attachments', auth, async (req, res) => {
+  try {
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
 
-  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
-  if (!card) return res.status(404).json({ error: 'Card not found' });
-
-  const id = uuidv4();
-  db.prepare('INSERT INTO card_attachments (id, card_id, user_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(id, req.params.cardId, req.user.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size);
-
-  const attachment = db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(id);
-  res.json({ ...attachment, url: '/uploads/' + attachment.filename });
+    const attachments = await db.prepare('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at').all(req.params.cardId);
+    res.json(attachments.map(a => ({ ...a, url: '/uploads/' + a.filename })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.delete('/attachments/:id', auth, requirePermission('edit_card'), (req, res) => {
-  const attachment = db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
-  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'File is required' });
 
-  const filePath = path.join(UPLOADS_DIR, attachment.filename);
-  try { fs.unlinkSync(filePath); } catch (_) {}
-  db.prepare('DELETE FROM card_attachments WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+    const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const id = uuidv4();
+    await db.prepare('INSERT INTO card_attachments (id, card_id, user_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, req.params.cardId, req.user.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size);
+
+    const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(id);
+    res.json({ ...attachment, url: '/uploads/' + attachment.filename });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.get('/:cardId/activities', auth, (req, res) => {
-  const activities = db.prepare(`
-    SELECT ca.*, u.name as user_name, u.avatar_color as user_color
-    FROM card_activities ca
-    JOIN users u ON ca.user_id = u.id
-    WHERE ca.card_id = ?
-    ORDER BY ca.created_at ASC
-  `).all(req.params.cardId);
-  res.json(activities.map(a => ({ ...a, data: JSON.parse(a.data || '{}') })));
+router.delete('/attachments/:id', auth, requirePermission('edit_card'), async (req, res) => {
+  try {
+    const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
+    if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+
+    const filePath = path.join(UPLOADS_DIR, attachment.filename);
+    try { fs.unlinkSync(filePath); } catch (_) {}
+    await db.prepare('DELETE FROM card_attachments WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:cardId/activities', auth, async (req, res) => {
+  try {
+    const activities = await db.prepare(`
+      SELECT ca.*, u.name as user_name, u.avatar_color as user_color
+      FROM card_activities ca
+      JOIN users u ON ca.user_id = u.id
+      WHERE ca.card_id = ?
+      ORDER BY ca.created_at ASC
+    `).all(req.params.cardId);
+    res.json(activities.map(a => ({ ...a, data: JSON.parse(a.data || '{}') })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

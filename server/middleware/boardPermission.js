@@ -17,63 +17,61 @@ const DEFAULT_PERMISSIONS = {
   },
 };
 
-function getPermissions(boardId, role) {
-  if (role === 'owner') return null; // owner skips all checks
-  const row = db.prepare('SELECT permissions FROM role_permissions WHERE board_id = ? AND role = ?').get(boardId, role);
+async function getPermissions(boardId, role) {
+  if (role === 'owner') return null;
+  const row = await db.prepare('SELECT permissions FROM role_permissions WHERE board_id = ? AND role = ?').get(boardId, role);
   return row ? JSON.parse(row.permissions) : (DEFAULT_PERMISSIONS[role] || {});
 }
 
-function resolveBoardId(req) {
+async function resolveBoardId(req) {
   if (req.path === '/move' && req.body?.cardId) {
-    const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.body.cardId);
+    const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.body.cardId);
     return c?.board_id;
   }
   if (req.params.columnId) {
-    const col = db.prepare('SELECT board_id FROM columns WHERE id = ?').get(req.params.columnId);
+    const col = await db.prepare('SELECT board_id FROM columns WHERE id = ?').get(req.params.columnId);
     return col?.board_id;
   }
   if (req.params.cardId) {
-    const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.params.cardId);
+    const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.params.cardId);
     return c?.board_id;
   }
   if (req.params.id && req.baseUrl.includes('cards')) {
-    const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.params.id);
+    const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.params.id);
     if (c) return c.board_id;
-    // Could be an attachment id (DELETE /attachments/:id)
-    const att = db.prepare('SELECT card_id FROM card_attachments WHERE id = ?').get(req.params.id);
+    const att = await db.prepare('SELECT card_id FROM card_attachments WHERE id = ?').get(req.params.id);
     if (att) {
-      const c2 = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(att.card_id);
+      const c2 = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(att.card_id);
       return c2?.board_id;
     }
   }
   if (req.params.id && req.baseUrl.includes('columns')) {
-    const col = db.prepare('SELECT board_id FROM columns WHERE id = ?').get(req.params.id);
+    const col = await db.prepare('SELECT board_id FROM columns WHERE id = ?').get(req.params.id);
     return col?.board_id;
   }
   if (req.params.boardId) return req.params.boardId;
   if (req.params.id && req.baseUrl.includes('automations')) {
-    const rule = db.prepare('SELECT board_id FROM automation_rules WHERE id = ?').get(req.params.id);
+    const rule = await db.prepare('SELECT board_id FROM automation_rules WHERE id = ?').get(req.params.id);
     return rule?.board_id;
   }
   if (req.params.checklistId) {
-    const cl = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.checklistId);
+    const cl = await db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.checklistId);
     if (cl) {
-      const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
+      const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
       return c?.board_id;
     }
   }
   if (req.params.id && req.baseUrl.includes('checklists')) {
-    // Could be a checklist id or an item id — try both
-    const cl = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.id);
+    const cl = await db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.id);
     if (cl) {
-      const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
+      const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
       return c?.board_id;
     }
-    const item = db.prepare('SELECT checklist_id FROM checklist_items WHERE id = ?').get(req.params.id);
+    const item = await db.prepare('SELECT checklist_id FROM checklist_items WHERE id = ?').get(req.params.id);
     if (item) {
-      const cl2 = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(item.checklist_id);
+      const cl2 = await db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(item.checklist_id);
       if (cl2) {
-        const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl2.card_id);
+        const c = await db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl2.card_id);
         return c?.board_id;
       }
     }
@@ -83,34 +81,41 @@ function resolveBoardId(req) {
 }
 
 function requirePermission(permission) {
-  return (req, res, next) => {
-    const boardId = resolveBoardId(req);
-    if (!boardId) return res.status(400).json({ error: 'Cannot determine board' });
+  return async (req, res, next) => {
+    try {
+      const boardId = await resolveBoardId(req);
+      if (!boardId) return res.status(400).json({ error: 'Cannot determine board' });
 
-    const member = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
-    if (!member) return res.status(403).json({ error: 'Not a board member' });
+      const member = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
+      if (!member) return res.status(403).json({ error: 'Not a board member' });
 
-    req.boardRole = member.role;
-    req.boardId = boardId;
+      req.boardRole = member.role;
+      req.boardId = boardId;
 
-    if (member.role === 'owner') return next();
+      if (member.role === 'owner') return next();
 
-    const perms = getPermissions(boardId, member.role);
-    if (!perms[permission]) return res.status(403).json({ error: 'Insufficient permissions' });
-    next();
+      const perms = await getPermissions(boardId, member.role);
+      if (!perms[permission]) return res.status(403).json({ error: 'Insufficient permissions' });
+      next();
+    } catch (err) {
+      next(err);
+    }
   };
 }
 
-// Legacy: keeps role-rank based checks for owner-only routes
 function requireOwner() {
-  return (req, res, next) => {
-    const boardId = resolveBoardId(req);
-    if (!boardId) return res.status(400).json({ error: 'Cannot determine board' });
-    const member = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
-    if (!member || member.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
-    req.boardRole = 'owner';
-    req.boardId = boardId;
-    next();
+  return async (req, res, next) => {
+    try {
+      const boardId = await resolveBoardId(req);
+      if (!boardId) return res.status(400).json({ error: 'Cannot determine board' });
+      const member = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
+      if (!member || member.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+      req.boardRole = 'owner';
+      req.boardId = boardId;
+      next();
+    } catch (err) {
+      next(err);
+    }
   };
 }
 

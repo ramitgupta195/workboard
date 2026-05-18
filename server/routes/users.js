@@ -2,15 +2,19 @@ const router = require('express').Router();
 const db = require('../db/database');
 const auth = require('../middleware/auth');
 
-router.get('/search', auth, (req, res) => {
-  const { q } = req.query;
-  if (!q || q.length < 1) return res.json([]);
+router.get('/search', auth, async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 1) return res.json([]);
 
-  const users = db.prepare(
-    'SELECT id, name, email, avatar_color FROM users WHERE (name LIKE ? OR email LIKE ?) AND id != ? LIMIT 8'
-  ).all(`%${q}%`, `%${q}%`, req.user.id);
+    const users = await db.prepare(
+      'SELECT id, name, email, avatar_color FROM users WHERE (name ILIKE ? OR email ILIKE ?) AND id != ? LIMIT 8'
+    ).all(`%${q}%`, `%${q}%`, req.user.id);
 
-  res.json(users);
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
