@@ -100,6 +100,25 @@ app.get('/api/fix-owner', async (req, res) => {
   }
 });
 
+// TEMPORARY: add a user to a board by email
+app.get('/api/add-member', async (req, res) => {
+  if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const { email, boardId, role = 'member' } = req.query;
+  if (!email || !boardId) return res.status(400).json({ error: 'email and boardId required' });
+  try {
+    const user = await db.prepare('SELECT id, name FROM users WHERE email = ?').get(email);
+    if (!user) return res.status(404).json({ error: 'user not found' });
+    const board = await db.prepare('SELECT id, title FROM boards WHERE id = ?').get(boardId);
+    if (!board) return res.status(404).json({ error: 'board not found' });
+    const existing = await db.prepare('SELECT 1 FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, user.id);
+    if (existing) return res.json({ ok: true, message: 'already a member', user: user.name, board: board.title });
+    await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(boardId, user.id, role);
+    res.json({ ok: true, added: true, user: user.name, board: board.title, role });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Create HTTP server and attach socket.io
 const httpServer = http.createServer(app);
 const { Server } = require('socket.io');
