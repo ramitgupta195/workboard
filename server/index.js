@@ -68,7 +68,7 @@ app.get('/api/test-email', async (req, res) => {
   const pass = process.env.GMAIL_APP_PASSWORD;
   if (!user || !pass) return res.status(500).json({ error: 'GMAIL_USER or GMAIL_APP_PASSWORD not set', user: !!user, pass: !!pass });
   try {
-    const t = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+    const t = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, auth: { user, pass } });
     await t.sendMail({ from: `"Workboard" <${user}>`, to, subject: 'Workboard test email', html: '<p>It works!</p>' });
     res.json({ ok: true, sentTo: to });
   } catch (e) {
