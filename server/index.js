@@ -53,7 +53,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 // TEMPORARY: promote user to owner on all their boards
 app.get('/api/fix-owner', (req, res) => {
-  if (req.query.key !== 'wb-fix-2026') return res.status(403).json({ error: 'forbidden' });
+  if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
   const email = req.query.email;
   if (!email) return res.status(400).json({ error: 'email required' });
   const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
