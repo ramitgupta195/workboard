@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { boardsApi } from '../api';
+import { boardsApi, invitesApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { PERMISSION_DEFS, DEFAULT_PERMISSIONS } from '../hooks/useBoardPermissions';
 import Navbar from '../components/Navbar';
@@ -59,6 +59,10 @@ export default function Permissions() {
   const [addRole, setAddRole] = useState('member');
   const [addError, setAddError] = useState('');
   const [adding, setAdding] = useState(false);
+  const [inviteLink, setInviteLink] = useState('');
+  const [inviteRole, setInviteRole] = useState('member');
+  const [generatingInvite, setGeneratingInvite] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   // Load boards list
   useEffect(() => {
@@ -144,6 +148,25 @@ export default function Permissions() {
     } finally {
       setAdding(false);
     }
+  }
+
+  async function handleGenerateInvite() {
+    setGeneratingInvite(true);
+    setInviteLink('');
+    try {
+      const { inviteUrl } = await invitesApi.create(selectedBoard.id, inviteRole);
+      setInviteLink(inviteUrl);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setGeneratingInvite(false);
+    }
+  }
+
+  async function handleCopyInvite() {
+    await navigator.clipboard.writeText(inviteLink);
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
   }
 
   const myMembership = members.find(m => m.id === user?.id);
@@ -407,6 +430,48 @@ export default function Permissions() {
                         </div>
                         {addError && <p className="text-red-500 text-xs mt-1.5">{addError}</p>}
                       </form>
+                    )}
+
+                    {/* Invite link */}
+                    {isOwner && (
+                      <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
+                        <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Invite link</p>
+                        <div className="flex gap-1.5 mb-2">
+                          <select
+                            value={inviteRole}
+                            onChange={e => { setInviteRole(e.target.value); setInviteLink(''); }}
+                            className="text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-white dark:bg-slate-800 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="manager">Manager</option>
+                            <option value="member">Member</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleGenerateInvite}
+                            disabled={generatingInvite}
+                            className="flex-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 transition-colors"
+                          >
+                            {generatingInvite ? 'Generating…' : 'Generate link'}
+                          </button>
+                        </div>
+                        {inviteLink && (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              readOnly
+                              value={inviteLink}
+                              className="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-slate-700 dark:text-slate-300 focus:outline-none truncate"
+                            />
+                            <button
+                              onClick={handleCopyInvite}
+                              className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 transition-colors font-medium"
+                            >
+                              {inviteCopied ? '✓ Copied' : 'Copy'}
+                            </button>
+                          </div>
+                        )}
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5">Link expires in 7 days. Anyone with it can join as the selected role.</p>
+                      </div>
                     )}
                   </div>
                 </div>
