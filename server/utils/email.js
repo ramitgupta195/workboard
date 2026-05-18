@@ -20,6 +20,7 @@ function getGmailClient() {
 
 function makeMime(to, from, subject, html) {
   const boundary = 'workboard_boundary';
+  const htmlB64 = Buffer.from(html).toString('base64');
   const mime = [
     `From: "Workboard" <${from}>`,
     `To: ${to}`,
@@ -29,9 +30,9 @@ function makeMime(to, from, subject, html) {
     '',
     `--${boundary}`,
     'Content-Type: text/html; charset=UTF-8',
-    'Content-Transfer-Encoding: quoted-printable',
+    'Content-Transfer-Encoding: base64',
     '',
-    html,
+    htmlB64,
     `--${boundary}--`,
   ].join('\r\n');
   return Buffer.from(mime).toString('base64url');
