@@ -51,6 +51,13 @@ app.use('/api/invites', require('./routes/invites'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// TEMPORARY: list registered users
+app.get('/api/list-users', (req, res) => {
+  if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const users = db.prepare('SELECT id, name, email FROM users').all();
+  res.json(users);
+});
+
 // TEMPORARY: promote user to owner on all their boards
 app.get('/api/fix-owner', (req, res) => {
   if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
