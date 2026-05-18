@@ -41,6 +41,7 @@ app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/checklists', require('./routes/checklists'));
 app.use('/api/my-tasks', require('./routes/myTasks'));
+app.use('/api/invites', require('./routes/invites'));
 
 // Create HTTP server and attach socket.io
 const httpServer = http.createServer(app);
