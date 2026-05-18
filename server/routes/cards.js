@@ -10,8 +10,9 @@ const { runTrigger } = require('../engine/automations');
 const { notify } = require('../utils/notify');
 const { getIo } = require('../io');
 
-// Ensure uploads directory exists
-const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+const UPLOADS_DIR = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, 'uploads')
+  : path.join(__dirname, '..', 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const storage = multer.diskStorage({

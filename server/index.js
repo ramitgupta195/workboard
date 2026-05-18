@@ -17,7 +17,10 @@ require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+// In dev, allow Vite dev server; in production same-origin so CORS not needed for browser reqs
+if (process.env.NODE_ENV !== 'production') {
+  app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+}
 app.use(express.json());
 app.use(session({
   secret: process.env.SESSION_SECRET || 'workboard-session-secret',
@@ -27,8 +30,11 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Serve uploaded files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// Serve uploaded files (use DATA_DIR volume path in production)
+const UPLOADS_SERVE_DIR = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, 'uploads')
+  : path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(UPLOADS_SERVE_DIR));
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/boards', require('./routes/boards'));
@@ -43,14 +49,21 @@ app.use('/api/checklists', require('./routes/checklists'));
 app.use('/api/my-tasks', require('./routes/myTasks'));
 app.use('/api/invites', require('./routes/invites'));
 
+// Serve React frontend in production (must come after all API routes)
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '../client/dist');
+  app.use(express.static(clientDist));
+  app.get('*', (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+}
+
 // Create HTTP server and attach socket.io
 const httpServer = http.createServer(app);
 const { Server } = require('socket.io');
+const socketCorsOrigin = process.env.NODE_ENV === 'production'
+  ? (process.env.CLIENT_URL || true)
+  : (process.env.CLIENT_URL || 'http://localhost:5173');
 const io = new Server(httpServer, {
-  cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-  },
+  cors: { origin: socketCorsOrigin, credentials: true },
 });
 
 setIo(io);
