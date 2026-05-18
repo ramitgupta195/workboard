@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import AuthCallback from './pages/AuthCallback';
 import Boards from './pages/Boards';
 import Board from './pages/Board';
 import Automations from './pages/Automations';
@@ -18,6 +19,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/" element={<PrivateRoute><Boards /></PrivateRoute>} />
         <Route path="/boards/:id" element={<PrivateRoute><Board /></PrivateRoute>} />
         <Route path="/boards/:id/automations" element={<PrivateRoute><Automations /></PrivateRoute>} />

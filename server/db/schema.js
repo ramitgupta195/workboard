@@ -5,8 +5,9 @@ db.exec(`
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT DEFAULT '',
     avatar_color TEXT DEFAULT '#6366f1',
+    google_id TEXT,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -136,5 +137,10 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id)
   );
 `);
+
+// Add google_id column to existing DBs (safe — ignored if already present)
+try { db.exec('ALTER TABLE users ADD COLUMN google_id TEXT'); } catch (_) {}
+// Make password_hash nullable for Google-only accounts
+try { db.exec("UPDATE users SET password_hash = '' WHERE password_hash IS NULL"); } catch (_) {}
 
 module.exports = db;

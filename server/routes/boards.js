@@ -3,13 +3,7 @@ const { v4: uuidv4 } = require('uuid');
 const db = require('../db/database');
 const auth = require('../middleware/auth');
 const { DEFAULT_PERMISSIONS, ROLES, requirePermission } = require('../middleware/boardPermission');
-
-function notify(userId, type, message, cardId, boardId) {
-  try {
-    db.prepare('INSERT INTO notifications (id, user_id, type, message, card_id, board_id) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(uuidv4(), userId, type, message, cardId || null, boardId || null);
-  } catch {}
-}
+const { notify } = require('../utils/notify');
 
 const BACKGROUNDS = ['gradient-1','gradient-2','gradient-3','gradient-4','gradient-5','gradient-6'];
 

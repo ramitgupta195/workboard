@@ -4,6 +4,7 @@ const db = require('../db/database');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../middleware/boardPermission');
 const { runTrigger } = require('../engine/automations');
+const { notify } = require('../utils/notify');
 
 function enrichCard(card) {
   const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
@@ -17,13 +18,6 @@ function enrichCard(card) {
 
 function getFullCard(id) {
   return db.prepare('SELECT c.*, u.name as creator_name, u.avatar_color as creator_color FROM cards c JOIN users u ON c.created_by = u.id WHERE c.id = ?').get(id);
-}
-
-function notify(userId, type, message, cardId, boardId) {
-  try {
-    db.prepare('INSERT INTO notifications (id, user_id, type, message, card_id, board_id) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(uuidv4(), userId, type, message, cardId || null, boardId || null);
-  } catch {}
 }
 
 function logActivity(cardId, userId, type, data = {}) {
