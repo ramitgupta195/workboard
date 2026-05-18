@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { notificationsApi } from '../api';
 
 function timeAgo(dateStr) {
-  // SQLite returns "YYYY-MM-DD HH:MM:SS" (space separator, no timezone)
-  const diff = Math.floor((Date.now() - new Date(dateStr.replace(' ', 'T') + 'Z')) / 1000);
+  if (!dateStr) return '';
+  const normalized = dateStr.replace(' ', 'T');
+  const iso = /[Zz]$|[+-]\d{2}:\d{2}$/.test(normalized) ? normalized : normalized + 'Z';
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
   if (diff < 60) return 'just now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
