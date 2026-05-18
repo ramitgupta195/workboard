@@ -52,10 +52,17 @@ function timeAgo(dateStr) {
 }
 
 function renderMentions(text) {
-  const parts = text.split(/(@\w[\w\s]*)(?=\s|$|@)/g);
-  return parts.map((part, i) =>
-    part.startsWith('@') ? <span key={i} className="mention-chip">{part}</span> : part
-  );
+  const parts = [];
+  let lastIndex = 0;
+  const re = /@[A-Z][a-z]+(?:\s[A-Z][a-z]+)*/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    parts.push(<span key={match.index} className="mention-chip">{match[0]}</span>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return parts;
 }
 
 function formatBytes(bytes) {
