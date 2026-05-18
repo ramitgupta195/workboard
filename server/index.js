@@ -1,5 +1,12 @@
 require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
+// Fail fast with a clear message if the DB URL is missing
+if (!process.env.DATABASE_URL) {
+  console.error('FATAL: DATABASE_URL is not set. Set it in the Render dashboard under Environment.');
+  process.exit(1);
+}
+console.log('[startup] DATABASE_URL prefix:', process.env.DATABASE_URL.slice(0, 30) + '...');
+
 const http = require('http');
 const path = require('path');
 const express = require('express');
