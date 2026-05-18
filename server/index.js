@@ -65,10 +65,12 @@ app.get('/api/test-email', async (req, res) => {
   if (!to) return res.status(400).json({ error: 'to required' });
   const nodemailer = require('nodemailer');
   const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return res.status(500).json({ error: 'GMAIL_USER or GMAIL_APP_PASSWORD not set', user: !!user, pass: !!pass });
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  if (!user || !refreshToken) return res.status(500).json({ error: 'GMAIL_USER or GMAIL_REFRESH_TOKEN not set', user: !!user, refreshToken: !!refreshToken });
   try {
-    const t = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 587, secure: false, auth: { user, pass } });
+    const t = nodemailer.createTransport({ service: 'gmail', auth: { type: 'OAuth2', user, clientId, clientSecret, refreshToken } });
     await t.sendMail({ from: `"Workboard" <${user}>`, to, subject: 'Workboard test email', html: '<p>It works!</p>' });
     res.json({ ok: true, sentTo: to });
   } catch (e) {
