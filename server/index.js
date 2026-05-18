@@ -51,6 +51,24 @@ app.use('/api/invites', require('./routes/invites'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// TEMPORARY: test email sending
+app.get('/api/test-email', async (req, res) => {
+  if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
+  const to = req.query.to;
+  if (!to) return res.status(400).json({ error: 'to required' });
+  const nodemailer = require('nodemailer');
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return res.status(500).json({ error: 'GMAIL_USER or GMAIL_APP_PASSWORD not set', user: !!user, pass: !!pass });
+  try {
+    const t = nodemailer.createTransport({ service: 'gmail', auth: { user, pass } });
+    await t.sendMail({ from: `"Workboard" <${user}>`, to, subject: 'Workboard test email', html: '<p>It works!</p>' });
+    res.json({ ok: true, sentTo: to });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // TEMPORARY: list registered users
 app.get('/api/list-users', (req, res) => {
   if (!process.env.ADMIN_KEY || req.query.key !== process.env.ADMIN_KEY) return res.status(403).json({ error: 'forbidden' });
