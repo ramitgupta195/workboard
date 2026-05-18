@@ -50,6 +50,17 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
       {...(isDragOverlay ? {} : { ...attributes, ...listeners })}
       onClick={isDragOverlay ? undefined : onClick}
     >
+      {/* Cover image */}
+      {card.cover_image && (
+        <div className="rounded-lg overflow-hidden mb-2.5 -mx-0.5">
+          <img
+            src={card.cover_image}
+            alt="Cover"
+            className="w-full h-24 object-cover"
+            draggable={false}
+          />
+        </div>
+      )}
       {/* Top row: labels + priority icon */}
       <div className="flex items-start justify-between gap-2 mb-1.5">
         <div className="flex flex-wrap gap-1 flex-1">

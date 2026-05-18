@@ -38,7 +38,13 @@ function resolveBoardId(req) {
   }
   if (req.params.id && req.baseUrl.includes('cards')) {
     const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(req.params.id);
-    return c?.board_id;
+    if (c) return c.board_id;
+    // Could be an attachment id (DELETE /attachments/:id)
+    const att = db.prepare('SELECT card_id FROM card_attachments WHERE id = ?').get(req.params.id);
+    if (att) {
+      const c2 = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(att.card_id);
+      return c2?.board_id;
+    }
   }
   if (req.params.id && req.baseUrl.includes('columns')) {
     const col = db.prepare('SELECT board_id FROM columns WHERE id = ?').get(req.params.id);
@@ -48,6 +54,29 @@ function resolveBoardId(req) {
   if (req.params.id && req.baseUrl.includes('automations')) {
     const rule = db.prepare('SELECT board_id FROM automation_rules WHERE id = ?').get(req.params.id);
     return rule?.board_id;
+  }
+  if (req.params.checklistId) {
+    const cl = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.checklistId);
+    if (cl) {
+      const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
+      return c?.board_id;
+    }
+  }
+  if (req.params.id && req.baseUrl.includes('checklists')) {
+    // Could be a checklist id or an item id — try both
+    const cl = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(req.params.id);
+    if (cl) {
+      const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl.card_id);
+      return c?.board_id;
+    }
+    const item = db.prepare('SELECT checklist_id FROM checklist_items WHERE id = ?').get(req.params.id);
+    if (item) {
+      const cl2 = db.prepare('SELECT card_id FROM card_checklists WHERE id = ?').get(item.checklist_id);
+      if (cl2) {
+        const c = db.prepare('SELECT board_id FROM cards WHERE id = ?').get(cl2.card_id);
+        return c?.board_id;
+      }
+    }
   }
   if (req.params.id) return req.params.id;
   return null;

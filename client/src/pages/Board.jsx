@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { boardsApi, columnsApi, cardsApi } from '../api';
 import { useBoardPermissions } from '../hooks/useBoardPermissions';
+import { useSocket } from '../hooks/useSocket';
 import Navbar from '../components/Navbar';
 import Column from '../components/Column';
 import TaskCard from '../components/TaskCard';
@@ -22,6 +23,8 @@ import CardModal from '../components/CardModal';
 import FilterBar from '../components/FilterBar';
 import SearchModal from '../components/SearchModal';
 import BoardSettingsModal from '../components/BoardSettingsModal';
+import ListView from '../components/ListView';
+import CalendarView from '../components/CalendarView';
 
 function buildColumnsWithCards(columns, cards) {
   return columns.map(col => ({
@@ -61,6 +64,7 @@ export default function Board() {
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [filters, setFilters] = useState({ priority: null, assigneeId: null, search: '' });
+  const [viewMode, setViewMode] = useState('board'); // 'board' | 'list' | 'calendar'
 
   const { can, role } = useBoardPermissions(members, rolePermissions);
 
@@ -91,6 +95,62 @@ export default function Board() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
+
+  // Real-time socket updates
+  useSocket(id, {
+    'card:created': (card) => {
+      setColumns(prev =>
+        prev.map(col =>
+          col.id === card.column_id && !col.cards.some(c => c.id === card.id)
+            ? { ...col, cards: [...col.cards, card] }
+            : col
+        )
+      );
+    },
+    'card:updated': (card) => {
+      setColumns(prev =>
+        prev.map(col => ({
+          ...col,
+          cards: col.cards.map(c => c.id === card.id ? { ...c, ...card } : c),
+        }))
+      );
+      setSelectedCard(prev => prev?.id === card.id ? { ...prev, ...card } : prev);
+    },
+    'card:moved': ({ cardId, destColumnId, columnOrders }) => {
+      setColumns(prev => {
+        const next = prev.map(c => ({ ...c, cards: [...c.cards] }));
+        const srcCol = next.find(c => c.cards.some(card => card.id === cardId));
+        const dstCol = next.find(c => c.id === destColumnId);
+        if (!srcCol || !dstCol || srcCol.id === dstCol.id) return prev;
+        const idx = srcCol.cards.findIndex(c => c.id === cardId);
+        const [moved] = srcCol.cards.splice(idx, 1);
+        moved.column_id = destColumnId;
+        dstCol.cards.push(moved);
+        return next;
+      });
+    },
+    'card:deleted': ({ cardId }) => {
+      setColumns(prev =>
+        prev.map(col => ({ ...col, cards: col.cards.filter(c => c.id !== cardId) }))
+      );
+      setSelectedCard(prev => prev?.id === cardId ? null : prev);
+    },
+    'column:created': (column) => {
+      setColumns(prev =>
+        prev.some(c => c.id === column.id)
+          ? prev
+          : [...prev, { ...column, cards: [] }]
+      );
+    },
+    'column:updated': (column) => {
+      setColumns(prev =>
+        prev.map(c => c.id === column.id ? { ...c, ...column } : c)
+      );
+    },
+    'column:deleted': ({ columnId }) => {
+      setColumns(prev => prev.filter(c => c.id !== columnId));
+    },
+  });
 
   function onDragStart({ active }) {
     if (active.data.current?.type === 'card') setActiveCard(active.data.current.card);
@@ -248,80 +308,125 @@ export default function Board() {
         onSearchChange={v => setFilters(f => ({ ...f, search: v }))}
       />
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={onDragStart}
-        onDragOver={onDragOver}
-        onDragEnd={onDragEnd}
-      >
-        <div className="board-scroll">
-          <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-            {displayColumns.map(col => (
-              <Column
-                key={col.id}
-                column={col}
-                can={can}
-                onCardClick={setSelectedCard}
-                onCardCreated={handleCardCreated}
-                onColumnUpdated={handleColumnUpdated}
-                onColumnDeleted={handleColumnDeleted}
-              />
-            ))}
-          </SortableContext>
+      {/* View switcher */}
+      <div className="flex items-center gap-1 px-4 pb-2">
+        {[
+          { key: 'board', label: 'Board', icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7' },
+          { key: 'list', label: 'List', icon: 'M4 6h16M4 10h16M4 14h16M4 18h16' },
+          { key: 'calendar', label: 'Calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+        ].map(v => (
+          <button
+            key={v.key}
+            onClick={() => setViewMode(v.key)}
+            className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+              viewMode === v.key
+                ? 'bg-white/30 text-white'
+                : 'text-white/60 hover:text-white hover:bg-white/15'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={v.icon} />
+            </svg>
+            {v.label}
+          </button>
+        ))}
+      </div>
 
-          {can.manageColumns && (
-            <div className="flex-shrink-0 w-72">
-              {addingColumn ? (
-                <form
-                  onSubmit={handleAddColumn}
-                  className="bg-white/90 backdrop-blur-sm rounded-xl p-3 shadow-md"
-                >
-                  <input
-                    autoFocus
-                    value={newColTitle}
-                    onChange={e => setNewColTitle(e.target.value)}
-                    placeholder="Column title…"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
-                    onKeyDown={e => { if (e.key === 'Escape') { setAddingColumn(false); setNewColTitle(''); } }}
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      type="submit"
-                      disabled={!newColTitle.trim()}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
-                    >
-                      Add
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setAddingColumn(false); setNewColTitle(''); }}
-                      className="px-3 text-gray-500 hover:text-gray-700 hover:bg-gray-100 text-sm rounded-lg transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <button
-                  onClick={() => setAddingColumn(true)}
-                  className="w-full flex items-center gap-2 bg-white/20 hover:bg-white/30 text-white font-medium px-4 py-3 rounded-xl transition-colors backdrop-blur-sm"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add column
-                </button>
-              )}
-            </div>
-          )}
+      {viewMode === 'list' && (
+        <div className="flex-1 overflow-auto bg-white/10 dark:bg-black/10">
+          <ListView columns={displayColumns} onCardClick={setSelectedCard} />
         </div>
+      )}
 
-        <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-          {activeCard && <TaskCard card={activeCard} isDragOverlay />}
-          {activeColumn && <Column column={activeColumn} can={can} isDragOverlay onCardClick={() => {}} onCardCreated={() => {}} onColumnUpdated={() => {}} onColumnDeleted={() => {}} />}
-        </DragOverlay>
-      </DndContext>
+      {viewMode === 'calendar' && (
+        <div className="flex-1 overflow-auto bg-white/10 dark:bg-black/10">
+          <div className="max-w-6xl mx-auto p-6">
+            <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-4 shadow-sm">
+              <CalendarView
+                cards={displayColumns.flatMap(c => c.cards)}
+                onCardClick={setSelectedCard}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'board' && (
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragOver={onDragOver}
+          onDragEnd={onDragEnd}
+        >
+          <div className="board-scroll">
+            <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+              {displayColumns.map(col => (
+                <Column
+                  key={col.id}
+                  column={col}
+                  can={can}
+                  onCardClick={setSelectedCard}
+                  onCardCreated={handleCardCreated}
+                  onColumnUpdated={handleColumnUpdated}
+                  onColumnDeleted={handleColumnDeleted}
+                />
+              ))}
+            </SortableContext>
+
+            {can.manageColumns && (
+              <div className="flex-shrink-0 w-72">
+                {addingColumn ? (
+                  <form
+                    onSubmit={handleAddColumn}
+                    className="bg-white/90 backdrop-blur-sm rounded-xl p-3 shadow-md"
+                  >
+                    <input
+                      autoFocus
+                      value={newColTitle}
+                      onChange={e => setNewColTitle(e.target.value)}
+                      placeholder="Column title…"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
+                      onKeyDown={e => { if (e.key === 'Escape') { setAddingColumn(false); setNewColTitle(''); } }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={!newColTitle.trim()}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium py-1.5 rounded-lg transition-colors"
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setAddingColumn(false); setNewColTitle(''); }}
+                        className="px-3 text-gray-500 hover:text-gray-700 hover:bg-gray-100 text-sm rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => setAddingColumn(true)}
+                    className="w-full flex items-center gap-2 bg-white/20 hover:bg-white/30 text-white font-medium px-4 py-3 rounded-xl transition-colors backdrop-blur-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add column
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+            {activeCard && <TaskCard card={activeCard} isDragOverlay />}
+            {activeColumn && <Column column={activeColumn} can={can} isDragOverlay onCardClick={() => {}} onCardCreated={() => {}} onColumnUpdated={() => {}} onColumnDeleted={() => {}} />}
+          </DragOverlay>
+        </DndContext>
+      )}
 
       {selectedCard && (
         <CardModal

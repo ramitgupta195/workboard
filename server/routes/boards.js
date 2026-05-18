@@ -1,9 +1,14 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const db = require('../db/database');
 const auth = require('../middleware/auth');
 const { DEFAULT_PERMISSIONS, ROLES, requirePermission } = require('../middleware/boardPermission');
 const { notify } = require('../utils/notify');
+const { sendEmail } = require('../utils/email');
+const { getIo } = require('../io');
+
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const BACKGROUNDS = ['gradient-1','gradient-2','gradient-3','gradient-4','gradient-5','gradient-6'];
 
@@ -67,7 +72,7 @@ router.get('/:id', auth, (req, res) => {
     SELECT c.*, u.name as creator_name, u.avatar_color as creator_color
     FROM cards c
     JOIN users u ON c.created_by = u.id
-    WHERE c.board_id = ?
+    WHERE c.board_id = ? AND c.archived_at IS NULL
     ORDER BY c.position
   `).all(req.params.id);
 
@@ -202,7 +207,9 @@ router.post('/:id/columns', auth, requirePermission('manage_columns'), (req, res
   db.prepare('INSERT INTO columns (id, board_id, title, color, position) VALUES (?, ?, ?, ?, ?)')
     .run(id, req.params.id, title || 'New Column', color || '#94a3b8', position);
 
-  res.json(db.prepare('SELECT * FROM columns WHERE id = ?').get(id));
+  const column = db.prepare('SELECT * FROM columns WHERE id = ?').get(id);
+  try { getIo()?.to(`board:${req.params.id}`).emit('column:created', column); } catch {}
+  res.json(column);
 });
 
 // Reorder columns
@@ -212,6 +219,142 @@ router.post('/:id/columns/reorder', auth, requirePermission('manage_columns'), (
   const tx = db.transaction(ids => ids.forEach((id, i) => update.run(i, id)));
   tx(columnIds);
   res.json({ success: true });
+});
+
+// ── Archived cards ────────────────────────────────────────────────────────────
+router.get('/:id/archived', auth, (req, res) => {
+  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a board member' });
+
+  const cards = db.prepare(`
+    SELECT c.*, u.name as creator_name, u.avatar_color as creator_color
+    FROM cards c
+    JOIN users u ON c.created_by = u.id
+    WHERE c.board_id = ? AND c.archived_at IS NOT NULL
+    ORDER BY c.archived_at DESC
+  `).all(req.params.id);
+
+  const result = cards.map(card => {
+    const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
+    const assignees = db.prepare(`
+      SELECT u.id, u.name, u.avatar_color FROM users u
+      JOIN card_assignees ca ON u.id = ca.user_id WHERE ca.card_id = ?
+    `).all(card.id);
+    return { ...card, labels, assignees };
+  });
+
+  res.json(result);
+});
+
+// ── Board invites ─────────────────────────────────────────────────────────────
+router.post('/:id/invites', auth, (req, res) => {
+  const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+
+  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!membership || !['owner', 'admin', 'manager'].includes(membership.role)) {
+    return res.status(403).json({ error: 'Insufficient permissions' });
+  }
+
+  const token = crypto.randomUUID();
+  const role = req.body.role && ['viewer', 'member', 'manager', 'admin'].includes(req.body.role) ? req.body.role : 'member';
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  db.prepare('INSERT INTO board_invites (token, board_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?)')
+    .run(token, req.params.id, role, req.user.id, expiresAt);
+
+  const inviteUrl = `${CLIENT_URL}/invite/${token}`;
+
+  const inviter = db.prepare('SELECT email FROM users WHERE id = ?').get(req.user.id);
+  if (inviter?.email) {
+    sendEmail(inviter.email, `Invite link for "${board.title}"`,
+      `<p>Here is the invite link for <strong>${board.title}</strong>:</p>
+       <p><a href="${inviteUrl}">${inviteUrl}</a></p>
+       <p>This link expires in 7 days and grants <strong>${role}</strong> access.</p>`
+    );
+  }
+
+  res.json({ token, inviteUrl });
+});
+
+router.get('/invites/:token', (req, res) => {
+  const invite = db.prepare('SELECT * FROM board_invites WHERE token = ?').get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invite not found' });
+  if (invite.used) return res.status(400).json({ error: 'Invite already used' });
+  if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite expired' });
+
+  const board = db.prepare('SELECT id, title FROM boards WHERE id = ?').get(invite.board_id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+
+  res.json({ board, role: invite.role });
+});
+
+router.post('/invites/:token/accept', auth, (req, res) => {
+  const invite = db.prepare('SELECT * FROM board_invites WHERE token = ?').get(req.params.token);
+  if (!invite) return res.status(404).json({ error: 'Invite not found' });
+  if (invite.used) return res.status(400).json({ error: 'Invite already used' });
+  if (new Date(invite.expires_at) < new Date()) return res.status(400).json({ error: 'Invite expired' });
+
+  const existing = db.prepare('SELECT 1 FROM board_members WHERE board_id = ? AND user_id = ?').get(invite.board_id, req.user.id);
+  if (existing) return res.status(400).json({ error: 'Already a board member' });
+
+  db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(invite.board_id, req.user.id, invite.role);
+  db.prepare('UPDATE board_invites SET used = 1 WHERE token = ?').run(req.params.token);
+
+  res.json({ success: true, boardId: invite.board_id, role: invite.role });
+});
+
+// ── Board export CSV ──────────────────────────────────────────────────────────
+router.get('/:id/export', auth, (req, res) => {
+  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a board member' });
+
+  const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
+  if (!board) return res.status(404).json({ error: 'Board not found' });
+
+  const cards = db.prepare(`
+    SELECT c.*, u.name as creator_name, col.title as column_title
+    FROM cards c
+    JOIN users u ON c.created_by = u.id
+    JOIN columns col ON c.column_id = col.id
+    WHERE c.board_id = ?
+    ORDER BY col.position, c.position
+  `).all(req.params.id);
+
+  function escapeCsv(val) {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  }
+
+  const rows = [['Title', 'Description', 'Priority', 'Status', 'Due Date', 'Assignees', 'Created By', 'Created At']];
+
+  cards.forEach(card => {
+    const assignees = db.prepare(`
+      SELECT u.name FROM users u
+      JOIN card_assignees ca ON u.id = ca.user_id WHERE ca.card_id = ?
+    `).all(card.id).map(a => a.name).join('; ');
+
+    rows.push([
+      card.title,
+      card.description || '',
+      card.priority || 'none',
+      card.column_title,
+      card.due_date || '',
+      assignees,
+      card.creator_name,
+      card.created_at,
+    ]);
+  });
+
+  const csv = rows.map(r => r.map(escapeCsv).join(',')).join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="board-export.csv"`);
+  res.send(csv);
 });
 
 module.exports = router;

@@ -1,11 +1,15 @@
 const router = require('express').Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const db = require('../db/database');
 const authMiddleware = require('../middleware/auth');
+const { sendEmail } = require('../utils/email');
+
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'workboard-dev-secret';
 const AVATAR_COLORS = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f97316','#22c55e','#06b6d4','#3b82f6'];
@@ -96,6 +100,75 @@ router.post('/login', (req, res) => {
 router.get('/me', authMiddleware, (req, res) => {
   const user = db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
   res.json(user);
+});
+
+// ── Password reset ───────────────────────────────────────────────────────────
+router.post('/forgot-password', (req, res) => {
+  const { email } = req.body;
+  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (user) {
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    db.prepare('INSERT INTO password_reset_tokens (token, user_id, expires_at) VALUES (?, ?, ?)')
+      .run(token, user.id, expiresAt);
+    const resetLink = `${CLIENT_URL}/reset-password?token=${token}`;
+    sendEmail(email, 'Reset your Workboard password',
+      `<p>Click the link below to reset your password. It expires in 1 hour.</p>
+       <p><a href="${resetLink}">${resetLink}</a></p>
+       <p>If you did not request this, ignore this email.</p>`
+    );
+  }
+  res.json({ message: 'If that email exists, a reset link has been sent.' });
+});
+
+router.post('/reset-password', (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'Token and password are required' });
+
+  const row = db.prepare('SELECT * FROM password_reset_tokens WHERE token = ?').get(token);
+  if (!row) return res.status(400).json({ error: 'Invalid or expired token' });
+  if (row.used) return res.status(400).json({ error: 'Token already used' });
+  if (new Date(row.expires_at) < new Date()) return res.status(400).json({ error: 'Token expired' });
+
+  const password_hash = bcrypt.hashSync(password, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, row.user_id);
+  db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE token = ?').run(token);
+
+  res.json({ message: 'Password updated' });
+});
+
+// ── Profile & password update (requires auth) ────────────────────────────────
+router.put('/profile', authMiddleware, (req, res) => {
+  const { name, avatar_color } = req.body;
+  db.prepare('UPDATE users SET name = COALESCE(?, name), avatar_color = COALESCE(?, avatar_color) WHERE id = ?')
+    .run(name || null, avatar_color || null, req.user.id);
+  const user = db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(req.user.id);
+  res.json(user);
+});
+
+router.put('/change-password', authMiddleware, (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both currentPassword and newPassword are required' });
+
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+  if (!user.password_hash) return res.status(400).json({ error: 'Cannot change password for Google-only accounts' });
+  if (!bcrypt.compareSync(currentPassword, user.password_hash)) return res.status(400).json({ error: 'Current password is incorrect' });
+
+  const password_hash = bcrypt.hashSync(newPassword, 10);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, req.user.id);
+  res.json({ message: 'Password changed' });
+});
+
+// ── Email verification ────────────────────────────────────────────────────────
+router.get('/verify-email', (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ error: 'Token required' });
+
+  const user = db.prepare('SELECT id FROM users WHERE verify_token = ?').get(token);
+  if (!user) return res.status(400).json({ error: 'Invalid or already used verification token' });
+
+  db.prepare("UPDATE users SET email_verified = 1, verify_token = NULL WHERE id = ?").run(user.id);
+  res.redirect(`${CLIENT_URL}/?verified=1`);
 });
 
 // ── Google OAuth ─────────────────────────────────────────────────────────────

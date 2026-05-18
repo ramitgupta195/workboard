@@ -17,6 +17,10 @@ export const authApi = {
   register: d => api.post('/auth/register', d),
   login: d => api.post('/auth/login', d),
   me: () => api.get('/auth/me'),
+  forgotPassword: email => api.post('/auth/forgot-password', { email }),
+  resetPassword: (token, password) => api.post('/auth/reset-password', { token, password }),
+  updateProfile: d => api.put('/auth/profile', d),
+  changePassword: d => api.put('/auth/change-password', d),
 };
 
 export const boardsApi = {
@@ -48,6 +52,27 @@ export const cardsApi = {
   getComments: cardId => api.get(`/cards/${cardId}/comments`),
   addComment: (cardId, content) => api.post(`/cards/${cardId}/comments`, { content }),
   getActivities: cardId => api.get(`/cards/${cardId}/activities`),
+  archive: id => api.put(`/cards/${id}/archive`),
+  unarchive: id => api.put(`/cards/${id}/unarchive`),
+  setCover: (id, attachmentId) => api.put(`/cards/${id}/cover`, { attachmentId }),
+  getAttachments: cardId => api.get(`/cards/${cardId}/attachments`),
+  uploadAttachment: (cardId, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post(`/cards/${cardId}/attachments`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+  deleteAttachment: id => api.delete(`/cards/attachments/${id}`),
+  getArchived: boardId => api.get(`/boards/${boardId}/archived`),
+};
+
+export const checklistsApi = {
+  list: cardId => api.get(`/checklists/cards/${cardId}/checklists`),
+  create: (cardId, title) => api.post(`/checklists/cards/${cardId}/checklists`, { title }),
+  update: (id, title) => api.put(`/checklists/${id}`, { title }),
+  delete: id => api.delete(`/checklists/${id}`),
+  addItem: (checklistId, text) => api.post(`/checklists/${checklistId}/items`, { text }),
+  updateItem: (id, d) => api.put(`/checklists/items/${id}`, d),
+  deleteItem: id => api.delete(`/checklists/items/${id}`),
 };
 
 export const commentsApi = {
@@ -74,6 +99,20 @@ export const notificationsApi = {
 
 export const searchApi = {
   search: q => api.get(`/search?q=${encodeURIComponent(q)}`),
+};
+
+export const myTasksApi = {
+  list: () => api.get('/my-tasks'),
+};
+
+export const invitesApi = {
+  create: boardId => api.post(`/boards/${boardId}/invites`),
+  get: token => api.get(`/invites/${token}`),
+  accept: token => api.post(`/invites/${token}/accept`),
+};
+
+export const exportApi = {
+  csv: boardId => `/api/boards/${boardId}/export`,
 };
 
 export default api;

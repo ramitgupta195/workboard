@@ -1,10 +1,27 @@
 const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const db = require('../db/database');
 const auth = require('../middleware/auth');
 const { requirePermission } = require('../middleware/boardPermission');
 const { runTrigger } = require('../engine/automations');
 const { notify } = require('../utils/notify');
+const { getIo } = require('../io');
+
+// Ensure uploads directory exists
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${uuidv4()}${ext}`);
+  },
+});
+const upload = multer({ storage });
 
 function enrichCard(card) {
   const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
@@ -48,6 +65,8 @@ router.post('/columns/:columnId/cards', auth, requirePermission('create_card'), 
   try { runTrigger('card_created', card, { column_id: req.params.columnId }, db); } catch {}
 
   logActivity(id, req.user.id, 'created', { title });
+
+  try { getIo()?.to(`board:${column.board_id}`).emit('card:created', result); } catch {}
 
   res.json(result);
 });
@@ -110,12 +129,18 @@ router.put('/:id', auth, requirePermission('edit_card'), (req, res) => {
     if (added.length || removed.length) logActivity(req.params.id, req.user.id, 'assignees_changed', { added, removed });
   }
 
+  try { getIo()?.to(`board:${result.board_id}`).emit('card:updated', result); } catch {}
+
   res.json(result);
 });
 
 // Delete card
 router.delete('/:id', auth, requirePermission('delete_card'), (req, res) => {
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM cards WHERE id = ?').run(req.params.id);
+  if (card) {
+    try { getIo()?.to(`board:${card.board_id}`).emit('card:deleted', { cardId: card.id, columnId: card.column_id, boardId: card.board_id }); } catch {}
+  }
   res.json({ success: true });
 });
 
@@ -173,6 +198,8 @@ router.post('/move', auth, (req, res) => {
 
     const srcColTitle = db.prepare('SELECT title FROM columns WHERE id = ?').get(sourceColumnId)?.title;
     logActivity(cardId, req.user.id, 'moved', { from: srcColTitle, to: destCol?.title });
+
+    try { getIo()?.to(`board:${oldCard.board_id}`).emit('card:moved', { cardId, destColumnId, columnOrders }); } catch {}
   }
 
   res.json({ success: true });
@@ -230,6 +257,75 @@ router.post('/:cardId/comments', auth, requirePermission('comment'), (req, res) 
   }
 
   res.json(comment);
+});
+
+// ── Archive / unarchive ───────────────────────────────────────────────────────
+router.put('/:id/archive', auth, requirePermission('delete_card'), (req, res) => {
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+
+  db.prepare("UPDATE cards SET archived_at = datetime('now') WHERE id = ?").run(req.params.id);
+  const updated = enrichCard(getFullCard(req.params.id));
+  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+  res.json(updated);
+});
+
+router.put('/:id/unarchive', auth, (req, res) => {
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+
+  const membership = db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(card.board_id, req.user.id);
+  if (!membership) return res.status(403).json({ error: 'Not a board member' });
+
+  db.prepare('UPDATE cards SET archived_at = NULL WHERE id = ?').run(req.params.id);
+  const updated = enrichCard(getFullCard(req.params.id));
+  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+  res.json(updated);
+});
+
+// ── Cover image ───────────────────────────────────────────────────────────────
+router.put('/:id/cover', auth, requirePermission('edit_card'), (req, res) => {
+  const { attachmentId } = req.body;
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.id);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+
+  db.prepare('UPDATE cards SET cover_image = ? WHERE id = ?').run(attachmentId || null, req.params.id);
+  const updated = enrichCard(getFullCard(req.params.id));
+  try { getIo()?.to(`board:${card.board_id}`).emit('card:updated', updated); } catch {}
+  res.json(updated);
+});
+
+// ── Attachments ───────────────────────────────────────────────────────────────
+router.get('/:cardId/attachments', auth, (req, res) => {
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+
+  const attachments = db.prepare('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at').all(req.params.cardId);
+  res.json(attachments.map(a => ({ ...a, url: '/uploads/' + a.filename })));
+});
+
+router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'File is required' });
+
+  const card = db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
+  if (!card) return res.status(404).json({ error: 'Card not found' });
+
+  const id = uuidv4();
+  db.prepare('INSERT INTO card_attachments (id, card_id, user_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, req.params.cardId, req.user.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size);
+
+  const attachment = db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(id);
+  res.json({ ...attachment, url: '/uploads/' + attachment.filename });
+});
+
+router.delete('/attachments/:id', auth, requirePermission('edit_card'), (req, res) => {
+  const attachment = db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
+  if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
+
+  const filePath = path.join(UPLOADS_DIR, attachment.filename);
+  try { fs.unlinkSync(filePath); } catch (_) {}
+  db.prepare('DELETE FROM card_attachments WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
 });
 
 router.get('/:cardId/activities', auth, (req, res) => {

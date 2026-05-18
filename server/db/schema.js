@@ -143,4 +143,66 @@ try { db.exec('ALTER TABLE users ADD COLUMN google_id TEXT'); } catch (_) {}
 // Make password_hash nullable for Google-only accounts
 try { db.exec("UPDATE users SET password_hash = '' WHERE password_hash IS NULL"); } catch (_) {}
 
+// Email verification columns
+try { db.exec('ALTER TABLE users ADD COLUMN email_verified INTEGER DEFAULT 0'); } catch (_) {}
+try { db.exec('ALTER TABLE users ADD COLUMN verify_token TEXT'); } catch (_) {}
+
+// Archive / cover image columns on cards
+try { db.exec('ALTER TABLE cards ADD COLUMN archived_at TEXT'); } catch (_) {}
+try { db.exec('ALTER TABLE cards ADD COLUMN cover_image TEXT'); } catch (_) {}
+
+// Password reset tokens
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS card_checklists (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT 'Checklist',
+    position INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS checklist_items (
+    id TEXT PRIMARY KEY,
+    checklist_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    done INTEGER DEFAULT 0,
+    position INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (checklist_id) REFERENCES card_checklists(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS card_attachments (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    mimetype TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS board_invites (
+    token TEXT PRIMARY KEY,
+    board_id TEXT NOT NULL,
+    role TEXT DEFAULT 'member',
+    created_by TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+  );
+`);
+
 module.exports = db;

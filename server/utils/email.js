@@ -53,4 +53,17 @@ async function sendNotificationEmail(userId, type, message, cardId, boardId) {
   } catch (_) {}
 }
 
-module.exports = { sendNotificationEmail };
+async function sendEmail(to, subject, html) {
+  const t = getTransporter();
+  if (!t) return;
+  try {
+    await t.sendMail({
+      from: `"Workboard" <${process.env.GMAIL_USER}>`,
+      to,
+      subject,
+      html,
+    });
+  } catch (_) {}
+}
+
+module.exports = { sendNotificationEmail, sendEmail };

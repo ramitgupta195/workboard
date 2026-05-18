@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { cardsApi, commentsApi, boardsApi } from '../api';
+import { cardsApi, commentsApi, boardsApi, checklistsApi } from '../api';
 import { useAuthStore } from '../store/authStore';
 import UserAvatar from './UserAvatar';
 import MentionInput from './MentionInput';
@@ -55,6 +55,34 @@ function renderMentions(text) {
   );
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function AttachmentIcon({ mimetype }) {
+  if (mimetype?.startsWith('image/')) {
+    return (
+      <svg className="w-4 h-4 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    );
+  }
+  if (mimetype === 'application/pdf') {
+    return (
+      <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+    </svg>
+  );
+}
+
 export default function CardModal({ card: initialCard, boardMembers, columns, can, onClose, onUpdated, onDeleted, onMoveToColumn }) {
   const [card, setCard] = useState(initialCard);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -73,6 +101,19 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   const [memberEmail, setMemberEmail] = useState('');
   const [addingMember, setAddingMember] = useState(false);
   const [memberError, setMemberError] = useState('');
+
+  // Checklists
+  const [checklists, setChecklists] = useState([]);
+  const [addingChecklist, setAddingChecklist] = useState(false);
+  const [newChecklistTitle, setNewChecklistTitle] = useState('');
+  const [addingItemTo, setAddingItemTo] = useState(null); // checklistId
+  const [newItemText, setNewItemText] = useState('');
+
+  // Attachments
+  const [attachments, setAttachments] = useState([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef(null);
+
   const user = useAuthStore(s => s.user);
   const titleRef = useRef(null);
 
@@ -84,6 +125,8 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   useEffect(() => {
     cardsApi.getComments(card.id).then(setComments);
     cardsApi.getActivities(card.id).then(setActivities);
+    checklistsApi.list(card.id).then(setChecklists).catch(() => {});
+    cardsApi.getAttachments(card.id).then(setAttachments).catch(() => {});
   }, [card.id]);
 
   async function saveField(field, value) {
@@ -173,11 +216,96 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
     }
   }
 
+  async function handleArchiveToggle() {
+    const updated = card.archived
+      ? await cardsApi.unarchive(card.id)
+      : await cardsApi.archive(card.id);
+    setCard(updated);
+    onUpdated(updated);
+  }
+
   async function handleDelete() {
     if (!confirm('Delete this card?')) return;
     await cardsApi.delete(card.id);
     onDeleted(card.id);
     onClose();
+  }
+
+  // --- Checklists ---
+  async function handleAddChecklist(e) {
+    e.preventDefault();
+    if (!newChecklistTitle.trim()) return;
+    const cl = await checklistsApi.create(card.id, newChecklistTitle.trim());
+    setChecklists(prev => [...prev, { ...cl, items: [] }]);
+    setNewChecklistTitle('');
+    setAddingChecklist(false);
+  }
+
+  async function handleDeleteChecklist(clId) {
+    await checklistsApi.delete(clId);
+    setChecklists(prev => prev.filter(c => c.id !== clId));
+  }
+
+  async function handleAddItem(e, clId) {
+    e.preventDefault();
+    if (!newItemText.trim()) return;
+    const item = await checklistsApi.addItem(clId, newItemText.trim());
+    setChecklists(prev => prev.map(cl =>
+      cl.id === clId ? { ...cl, items: [...(cl.items || []), item] } : cl
+    ));
+    setNewItemText('');
+    setAddingItemTo(null);
+  }
+
+  async function handleToggleItem(clId, itemId, done) {
+    const updated = await checklistsApi.updateItem(itemId, { done });
+    setChecklists(prev => prev.map(cl =>
+      cl.id === clId
+        ? { ...cl, items: cl.items.map(it => it.id === itemId ? updated : it) }
+        : cl
+    ));
+  }
+
+  async function handleDeleteItem(clId, itemId) {
+    await checklistsApi.deleteItem(itemId);
+    setChecklists(prev => prev.map(cl =>
+      cl.id === clId ? { ...cl, items: cl.items.filter(it => it.id !== itemId) } : cl
+    ));
+  }
+
+  // --- Attachments ---
+  async function handleFileUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAttachment(true);
+    try {
+      const att = await cardsApi.uploadAttachment(card.id, file);
+      setAttachments(prev => [...prev, att]);
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function handleDeleteAttachment(attId) {
+    await cardsApi.deleteAttachment(attId);
+    setAttachments(prev => prev.filter(a => a.id !== attId));
+    // If it was the cover, clear it
+    if (card.cover_image) {
+      const att = attachments.find(a => a.id === attId);
+      if (att && card.cover_image.includes(att.filename)) {
+        const updated = await cardsApi.setCover(card.id, null);
+        setCard(updated);
+        onUpdated(updated);
+      }
+    }
+  }
+
+  async function handleSetCover(attId) {
+    const isCurrent = card.cover_attachment_id === attId;
+    const updated = await cardsApi.setCover(card.id, isCurrent ? null : attId);
+    setCard(updated);
+    onUpdated(updated);
   }
 
   const currentPriority = PRIORITIES.find(p => p.value === card.priority) || PRIORITIES[0];
@@ -186,8 +314,25 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 w-full max-w-2xl animate-slide-up transition-colors duration-300" onClick={e => e.stopPropagation()}>
-        {currentPriority.value !== 'none' && (
+        {/* Cover image */}
+        {card.cover_image && (
+          <div className="rounded-t-xl overflow-hidden">
+            <img src={card.cover_image} alt="Card cover" className="w-full h-32 object-cover" />
+          </div>
+        )}
+
+        {currentPriority.value !== 'none' && !card.cover_image && (
           <div className="h-0.5 rounded-t-xl" style={{ background: currentPriority.color }} />
+        )}
+
+        {/* Archived banner */}
+        {card.archived && (
+          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-5 py-2 flex items-center gap-2">
+            <svg className="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+            </svg>
+            <span className="text-sm text-amber-700 dark:text-amber-400 font-medium">This card is archived</span>
+          </div>
         )}
 
         <div className="flex">
@@ -268,6 +413,204 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
                   }`}
                 >
                   {description || (canEdit ? 'Click to add a description…' : 'No description')}
+                </div>
+              )}
+            </div>
+
+            {/* Checklists */}
+            {(checklists.length > 0 || canEdit) && (
+              <div className="mb-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">Checklists</span>
+                  {canEdit && (
+                    <button
+                      onClick={() => setAddingChecklist(v => !v)}
+                      className="ml-auto text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium"
+                    >
+                      + Add checklist
+                    </button>
+                  )}
+                </div>
+
+                {addingChecklist && (
+                  <form onSubmit={handleAddChecklist} className="flex gap-2 mb-3">
+                    <input
+                      autoFocus
+                      value={newChecklistTitle}
+                      onChange={e => setNewChecklistTitle(e.target.value)}
+                      placeholder="Checklist title…"
+                      className="flex-1 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      onKeyDown={e => { if (e.key === 'Escape') { setAddingChecklist(false); setNewChecklistTitle(''); } }}
+                    />
+                    <button type="submit" className="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-colors">Add</button>
+                    <button type="button" onClick={() => { setAddingChecklist(false); setNewChecklistTitle(''); }} className="text-slate-400 hover:text-slate-600 text-xs px-2">✕</button>
+                  </form>
+                )}
+
+                <div className="space-y-4">
+                  {checklists.map(cl => {
+                    const total = cl.items?.length || 0;
+                    const done = cl.items?.filter(it => it.done).length || 0;
+                    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                    return (
+                      <div key={cl.id}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 flex-1">{cl.title}</span>
+                          <span className="text-[11px] text-slate-400">{pct}%</span>
+                          {canEdit && (
+                            <button onClick={() => handleDeleteChecklist(cl.id)} className="text-slate-300 hover:text-red-400 transition-colors">
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                        {total > 0 && (
+                          <div className="h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full mb-2 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-300"
+                              style={{ width: `${pct}%`, background: pct === 100 ? '#22c55e' : '#6366f1' }}
+                            />
+                          </div>
+                        )}
+                        <div className="space-y-1">
+                          {(cl.items || []).map(item => (
+                            <div key={item.id} className="flex items-start gap-2 group/item">
+                              <input
+                                type="checkbox"
+                                checked={item.done}
+                                onChange={e => canEdit && handleToggleItem(cl.id, item.id, e.target.checked)}
+                                disabled={!canEdit}
+                                className="mt-0.5 w-3.5 h-3.5 rounded accent-indigo-600 flex-shrink-0 cursor-pointer"
+                              />
+                              <span className={`flex-1 text-sm ${item.done ? 'line-through text-slate-400 dark:text-slate-500' : 'text-slate-700 dark:text-slate-300'}`}>
+                                {item.text}
+                              </span>
+                              {canEdit && (
+                                <button
+                                  onClick={() => handleDeleteItem(cl.id, item.id)}
+                                  className="opacity-0 group-hover/item:opacity-100 text-slate-300 hover:text-red-400 transition-all"
+                                >
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {canEdit && (
+                          addingItemTo === cl.id ? (
+                            <form onSubmit={e => handleAddItem(e, cl.id)} className="flex gap-2 mt-2">
+                              <input
+                                autoFocus
+                                value={newItemText}
+                                onChange={e => setNewItemText(e.target.value)}
+                                placeholder="Item text…"
+                                className="flex-1 border border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                onKeyDown={e => { if (e.key === 'Escape') { setAddingItemTo(null); setNewItemText(''); } }}
+                              />
+                              <button type="submit" className="bg-indigo-600 text-white text-xs px-2 py-1 rounded hover:bg-indigo-700 transition-colors">Add</button>
+                              <button type="button" onClick={() => { setAddingItemTo(null); setNewItemText(''); }} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+                            </form>
+                          ) : (
+                            <button
+                              onClick={() => { setAddingItemTo(cl.id); setNewItemText(''); }}
+                              className="text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium mt-1.5"
+                            >
+                              + Add item
+                            </button>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Attachments */}
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-3">
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">Attachments</span>
+                {canEdit && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleFileUpload}
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingAttachment}
+                      className="ml-auto text-xs text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 font-medium disabled:opacity-50"
+                    >
+                      {uploadingAttachment ? 'Uploading…' : '+ Attach file'}
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {attachments.length > 0 && (
+                <div className="space-y-2">
+                  {attachments.map(att => {
+                    const isImage = att.mimetype?.startsWith('image/');
+                    const isCover = card.cover_attachment_id === att.id;
+                    return (
+                      <div key={att.id} className="flex items-start gap-3 group/att p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
+                        {isImage ? (
+                          <img src={att.url} alt={att.original_name} className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded bg-slate-100 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                            <AttachmentIcon mimetype={att.mimetype} />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <a
+                            href={att.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 truncate block transition-colors"
+                          >
+                            {att.original_name}
+                          </a>
+                          <p className="text-[11px] text-slate-400 dark:text-slate-500">{formatBytes(att.size)}</p>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover/att:opacity-100 transition-opacity flex-shrink-0">
+                          {isImage && canEdit && (
+                            <button
+                              onClick={() => handleSetCover(att.id)}
+                              className={`text-[10px] font-medium px-1.5 py-0.5 rounded transition-colors ${
+                                isCover
+                                  ? 'bg-indigo-100 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400'
+                                  : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30'
+                              }`}
+                              title={isCover ? 'Remove cover' : 'Set as cover'}
+                            >
+                              {isCover ? 'Cover ✓' : 'Set cover'}
+                            </button>
+                          )}
+                          {canEdit && (
+                            <button
+                              onClick={() => handleDeleteAttachment(att.id)}
+                              className="text-slate-300 hover:text-red-400 transition-colors p-0.5"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -544,17 +887,30 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
             )}
 
             {/* Danger zone */}
-            {canDelete && (
-              <div className="mt-auto pt-3 border-t border-gray-100 dark:border-slate-700">
-                <button
-                  onClick={handleDelete}
-                  className="w-full flex items-center gap-2 px-2.5 py-2 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Delete card
-                </button>
+            {(canDelete || canEdit) && (
+              <div className="mt-auto pt-3 border-t border-gray-100 dark:border-slate-700 space-y-1">
+                {canEdit && (
+                  <button
+                    onClick={handleArchiveToggle}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                    {card.archived ? 'Unarchive card' : 'Archive card'}
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={handleDelete}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Delete card
+                  </button>
+                )}
               </div>
             )}
           </div>
