@@ -51,6 +51,19 @@ app.use('/api/invites', require('./routes/invites'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
+// TEMPORARY: promote user to owner on all their boards
+app.get('/api/fix-owner', (req, res) => {
+  if (req.query.key !== 'wb-fix-2026') return res.status(403).json({ error: 'forbidden' });
+  const email = req.query.email;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  if (!user) return res.status(404).json({ error: 'user not found' });
+  const boards = db.prepare('SELECT board_id FROM board_members WHERE user_id = ?').all(user.id);
+  db.prepare('UPDATE board_members SET role = ? WHERE user_id = ?').run('owner', user.id);
+  db.prepare('UPDATE boards SET created_by = ? WHERE id IN (SELECT board_id FROM board_members WHERE user_id = ?)').run(user.id, user.id);
+  res.json({ ok: true, boardsUpdated: boards.length });
+});
+
 // Serve React frontend in production (must come after all API routes)
 if (process.env.NODE_ENV === 'production') {
   const clientDist = path.join(__dirname, '../client/dist');
