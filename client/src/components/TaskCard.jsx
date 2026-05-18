@@ -93,7 +93,7 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
       </div>
 
       {/* Title */}
-      <p className="text-[13px] text-slate-800 font-medium leading-snug mb-2.5 tracking-tight">
+      <p className="text-[13px] text-slate-800 dark:text-slate-100 font-medium leading-snug mb-2.5 tracking-tight">
         {card.title}
       </p>
 
@@ -114,7 +114,7 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
           {formattedDate && (
             <span
               className={`inline-flex items-center gap-0.5 text-[10px] font-medium leading-none px-1.5 py-0.5 rounded ${
-                isOverdue ? 'bg-red-50 text-red-500' : 'text-slate-400'
+                isOverdue ? 'bg-red-50 dark:bg-red-900/30 text-red-500' : 'text-slate-400 dark:text-slate-500'
               }`}
             >
               <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -136,10 +136,10 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
         {card.assignees?.length > 0 && (
           <div className="flex -space-x-1.5">
             {card.assignees.slice(0, 3).map(u => (
-              <UserAvatar key={u.id} user={u} size={18} className="ring-1 ring-white" />
+              <UserAvatar key={u.id} user={u} size={18} className="ring-1 ring-white dark:ring-slate-700" />
             ))}
             {card.assignees.length > 3 && (
-              <div className="w-[18px] h-[18px] rounded-full bg-slate-100 ring-1 ring-white flex items-center justify-center text-[8px] text-slate-500 font-semibold">
+              <div className="w-[18px] h-[18px] rounded-full bg-slate-100 dark:bg-slate-700 ring-1 ring-white dark:ring-slate-600 flex items-center justify-center text-[8px] text-slate-500 dark:text-slate-300 font-semibold">
                 +{card.assignees.length - 3}
               </div>
             )}
