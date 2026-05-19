@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useThemeStore } from '../store/themeStore';
@@ -11,7 +11,18 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
   const navigate = useNavigate();
   const { theme, toggle } = useThemeStore();
   const [spinning, setSpinning] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   const onBoard = !!boardBackground;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [menuOpen]);
 
   function handleToggle() {
     if (spinning) return;
@@ -134,21 +145,24 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
           </span>
         </button>
 
-        <div className="relative group">
-          <UserAvatar
-            user={user}
-            size={28}
-            className={`cursor-pointer ring-2 transition-all ${
-              onBoard ? 'ring-white/30 hover:ring-white/60' : 'ring-slate-100 hover:ring-indigo-200'
-            }`}
-          />
-          <div className="absolute right-0 top-full mt-1.5 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-100 dark:border-slate-700 opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity z-50 py-1">
+        <div className="relative" ref={menuRef}>
+          <button onClick={() => setMenuOpen(v => !v)} className="focus:outline-none">
+            <UserAvatar
+              user={user}
+              size={28}
+              className={`cursor-pointer ring-2 transition-all ${
+                onBoard ? 'ring-white/30 hover:ring-white/60' : 'ring-slate-100 hover:ring-indigo-200'
+              }`}
+            />
+          </button>
+          <div className={`absolute right-0 top-full mt-1.5 w-40 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-slate-100 dark:border-slate-700 z-50 py-1 transition-all duration-150 ${menuOpen ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-1 pointer-events-none'}`}>
             <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-700">
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">{user?.name}</p>
               <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate">{user?.email}</p>
             </div>
             <Link
               to="/profile"
+              onClick={() => setMenuOpen(false)}
               className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -158,6 +172,7 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
             </Link>
             <Link
               to="/my-tasks"
+              onClick={() => setMenuOpen(false)}
               className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -167,7 +182,7 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
             </Link>
             <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
               <button
-                onClick={() => { logout(); navigate('/login'); }}
+                onClick={() => { setMenuOpen(false); logout(); navigate('/login'); }}
                 className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
