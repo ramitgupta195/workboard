@@ -363,7 +363,7 @@ router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload
     let storedFilename = req.file.filename;
 
     if (fileStorage.isConfigured()) {
-      const basePath = process.env.FILES_BASE_PATH || '/workboard';
+      const basePath = process.env.FILES_BASE_PATH || 'EdstellarCloud/Workboard';
       const filesPath = `${basePath}/attachments/${req.file.filename}`;
 
       // Two-phase upload: begin → PUT to S3 signed URI → complete
