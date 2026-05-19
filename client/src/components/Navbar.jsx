@@ -5,7 +5,7 @@ import { useThemeStore } from '../store/themeStore';
 import UserAvatar from './UserAvatar';
 import NotificationsPanel from './NotificationsPanel';
 
-export default function Navbar({ title, boardBackground, boardId, canManageBoard, onSettingsClick, onSearchClick }) {
+export default function Navbar({ title, boardBackground, boardId, canManageBoard, onSettingsClick, onSearchClick, onInviteClick }) {
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
   const navigate = useNavigate();
@@ -101,7 +101,23 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
               </svg>
               Automations
             </Link>
-{canManageBoard && onSettingsClick && (
+{canManageBoard && onInviteClick && (
+              <button
+                onClick={onInviteClick}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                  onBoard
+                    ? 'bg-white/15 hover:bg-white/25 text-white/80 hover:text-white'
+                    : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-400'
+                }`}
+                title="Invite to board"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                </svg>
+                Invite
+              </button>
+            )}
+            {canManageBoard && onSettingsClick && (
               <button
                 onClick={onSettingsClick}
                 className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors ${

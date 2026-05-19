@@ -24,6 +24,7 @@ import CardModal from '../components/CardModal';
 import FilterBar from '../components/FilterBar';
 import SearchModal from '../components/SearchModal';
 import BoardSettingsModal from '../components/BoardSettingsModal';
+import InviteModal from '../components/InviteModal';
 import ListView from '../components/ListView';
 import CalendarView from '../components/CalendarView';
 
@@ -64,6 +65,7 @@ export default function Board() {
   const [newColTitle, setNewColTitle] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [filters, setFilters] = useState({ priority: null, assigneeId: null, search: '' });
   const [viewMode, setViewMode] = useState('board'); // 'board' | 'list' | 'calendar'
   const [showExport, setShowExport] = useState(false);
@@ -319,6 +321,7 @@ export default function Board() {
         canManageBoard={can.manageBoard}
         onSettingsClick={() => setShowSettings(true)}
         onSearchClick={() => setShowSearch(true)}
+        onInviteClick={() => setShowInvite(true)}
       />
 
       <FilterBar
@@ -521,6 +524,14 @@ export default function Board() {
           onClose={() => setShowSettings(false)}
           onUpdated={updated => { setBoard(updated); setShowSettings(false); }}
           onMembersChanged={setMembers}
+        />
+      )}
+
+      {showInvite && (
+        <InviteModal
+          boardId={id}
+          boardTitle={board?.title}
+          onClose={() => setShowInvite(false)}
         />
       )}
 
