@@ -15,7 +15,7 @@ const BACKGROUNDS = ['gradient-1','gradient-2','gradient-3','gradient-4','gradie
 router.get('/', auth, async (req, res) => {
   try {
     const boards = await db.prepare(`
-      SELECT b.*, u.name as creator_name
+      SELECT b.*, u.name as creator_name, bm.role as user_role
       FROM boards b
       JOIN board_members bm ON b.id = bm.board_id
       JOIN users u ON b.created_by = u.id
@@ -160,8 +160,11 @@ router.put('/:id/members/:userId', auth, async (req, res) => {
 
     const board = await db.prepare('SELECT created_by, title FROM boards WHERE id = ?').get(req.params.id);
     if (!board) return res.status(404).json({ error: 'Board not found' });
-    if (board.created_by !== req.user.id) return res.status(403).json({ error: 'Only the owner can change roles' });
+    const requester = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!requester || !['owner', 'admin'].includes(requester.role)) return res.status(403).json({ error: 'Only owner or admin can change roles' });
     if (req.params.userId === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
+    const target = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.params.userId);
+    if (target && ['owner', 'admin'].includes(target.role) && board.created_by !== req.user.id) return res.status(403).json({ error: 'Only the owner can change admin or owner roles' });
 
     await db.prepare('UPDATE board_members SET role = ? WHERE board_id = ? AND user_id = ?')
       .run(role, req.params.id, req.params.userId);
@@ -199,7 +202,8 @@ router.put('/:id/permissions/:role', auth, async (req, res) => {
   try {
     const board = await db.prepare('SELECT created_by FROM boards WHERE id = ?').get(req.params.id);
     if (!board) return res.status(404).json({ error: 'Board not found' });
-    if (board.created_by !== req.user.id) return res.status(403).json({ error: 'Owner only' });
+    const requesterPerm = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!requesterPerm || !['owner', 'admin'].includes(requesterPerm.role)) return res.status(403).json({ error: 'Owner or admin only' });
 
     const validRoles = ['admin', 'manager', 'member'];
     if (!validRoles.includes(req.params.role)) return res.status(400).json({ error: 'Invalid role' });

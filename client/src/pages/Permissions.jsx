@@ -33,7 +33,7 @@ function Toggle({ enabled, onChange, locked }) {
     <button
       onClick={() => !locked && onChange(!enabled)}
       disabled={locked}
-      title={locked ? 'Owner always has full access' : (enabled ? 'Click to disable' : 'Click to enable')}
+      title={locked ? 'Only owner or admin can edit' : (enabled ? 'Click to disable' : 'Click to enable')}
       className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none ${
         locked ? 'cursor-not-allowed' : 'cursor-pointer'
       } ${enabled ? (locked ? 'bg-indigo-300 dark:bg-indigo-800' : 'bg-indigo-500') : 'bg-slate-200 dark:bg-slate-700'}`}
@@ -64,9 +64,9 @@ export default function Permissions() {
   // Load boards list
   useEffect(() => {
     boardsApi.list().then(boards => {
-      const owned = boards.filter(b => b.created_by === user?.id);
-      setAllBoards(owned);
-      if (owned.length > 0) loadBoard(owned[0].id);
+      const manageable = boards.filter(b => b.created_by === user?.id || b.user_role === 'admin');
+      setAllBoards(manageable);
+      if (manageable.length > 0) loadBoard(manageable[0].id);
     });
   }, []);
 
@@ -150,6 +150,7 @@ export default function Permissions() {
 
   const myMembership = members.find(m => m.id === user?.id);
   const isOwner = myMembership?.role === 'owner' || selectedBoard?.created_by === user?.id;
+  const canManage = isOwner || myMembership?.role === 'admin';
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col">
@@ -161,10 +162,11 @@ export default function Permissions() {
         <aside className="w-60 flex-shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-y-auto">
           <div className="px-4 pt-5 pb-3">
             <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Your boards</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">Owner &amp; admin access</p>
           </div>
 
           {allBoards.length === 0 ? (
-            <p className="px-4 text-xs text-slate-400 dark:text-slate-500">You don't own any boards yet.</p>
+            <p className="px-4 text-xs text-slate-400 dark:text-slate-500">No boards with owner or admin access.</p>
           ) : (
             <nav className="flex flex-col gap-0.5 px-2 pb-4">
               {allBoards.map(board => {
@@ -264,8 +266,8 @@ export default function Permissions() {
                           <div key={r.key} className="flex justify-center">
                             <Toggle
                               enabled={permissions[r.key]?.[key] ?? false}
-                              onChange={() => isOwner && togglePerm(r.key, key)}
-                              locked={!isOwner}
+                              onChange={() => canManage && togglePerm(r.key, key)}
+                              locked={!canManage}
                             />
                           </div>
                         ))}
@@ -274,7 +276,7 @@ export default function Permissions() {
 
                     {/* Save bar */}
                     <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/60 border-t border-slate-100 dark:border-slate-800">
-                      {isOwner ? (
+                      {canManage ? (
                         <>
                           <button
                             onClick={resetToDefaults}
@@ -297,7 +299,7 @@ export default function Permissions() {
                           </button>
                         </>
                       ) : (
-                        <p className="text-xs text-slate-400 dark:text-slate-500">Only the board owner can edit permissions</p>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">Only the board owner or admin can edit permissions</p>
                       )}
                     </div>
                   </div>
@@ -347,7 +349,7 @@ export default function Permissions() {
                               </p>
                               <p className="text-[10px] text-slate-400 truncate">{m.email}</p>
                             </div>
-                            {isOwner && !isMe && !isThisOwner ? (
+                            {canManage && !isMe && !isThisOwner && !(myMembership?.role === 'admin' && m.role === 'admin') ? (
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 <select
                                   value={m.role}
@@ -378,7 +380,7 @@ export default function Permissions() {
                       })}
                     </div>
 
-                    {isOwner && (
+                    {canManage && (
                       <form onSubmit={handleSendInvite} className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40">
                         <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2">Send invite</p>
                         <input
