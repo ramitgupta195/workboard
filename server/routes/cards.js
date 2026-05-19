@@ -352,6 +352,15 @@ router.get('/attachments/proxy/:id', auth, async (req, res) => {
   }
 });
 
+function slugify(str) {
+  return String(str || 'unknown')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'unnamed';
+}
+
 router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'File is required' });
@@ -364,7 +373,10 @@ router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload
 
     if (fileStorage.isConfigured()) {
       const basePath = process.env.FILES_BASE_PATH || 'EdstellarCloud/Workboard';
-      const filesPath = `${basePath}/attachments/${req.file.filename}`;
+      const board = await db.prepare('SELECT title FROM boards WHERE id = ?').get(card.board_id);
+      const boardSlug = slugify(board?.title);
+      const cardSlug = slugify(card.title);
+      const filesPath = `${basePath}/${boardSlug}/${cardSlug}/${req.file.filename}`;
 
       // Two-phase upload: begin → PUT to S3 signed URI → complete
       const [part] = await fileStorage.beginUpload(filesPath);
