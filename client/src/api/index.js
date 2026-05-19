@@ -114,7 +114,7 @@ export const invitesApi = {
 
 export const workspaceApi = {
   getMembers: () => api.get('/workspace/members'),
-  invite: (email, role = 'admin') => api.post('/workspace/invite', { email, role }),
+  invite: (email, role = 'admin', skipEmail = false) => api.post('/workspace/invite', { email, role, skipEmail }),
   getInvite: token => api.get(`/workspace/invite/${token}`),
   acceptInvite: token => api.post(`/workspace/invite/${token}/accept`),
   removeMember: userId => api.delete(`/workspace/members/${userId}`),

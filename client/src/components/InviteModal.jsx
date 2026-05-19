@@ -13,6 +13,7 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
   const [role, setRole] = useState('admin');
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState('');
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSend(e) {
@@ -30,6 +31,24 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
       setEmail('');
     } catch (err) {
       setError(err.error || 'Failed to send invite');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleCopyLink() {
+    if (!email.trim()) return;
+    setSending(true);
+    setError('');
+    try {
+      const res = await workspaceApi.invite(email.trim(), role, true);
+      await navigator.clipboard.writeText(res.inviteUrl);
+      setCopied(true);
+      setSent('');
+      setEmail('');
+      setTimeout(() => setCopied(false), 3000);
+    } catch (err) {
+      setError(err.error || 'Failed to generate link');
     } finally {
       setSending(false);
     }
@@ -153,27 +172,52 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
                 Invite sent to <strong>{sent}</strong>
               </div>
             )}
+            {copied && (
+              <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-sm">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Link copied to clipboard
+              </div>
+            )}
             {error && <p className="text-red-500 dark:text-red-400 text-xs">{error}</p>}
 
-            <button
-              type="submit"
-              disabled={sending || !email.trim()}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
-            >
-              {sending ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Sending…
-                </>
-              ) : (
-                <>
+            <div className={`flex gap-2 ${mode === 'workspace' ? '' : ''}`}>
+              <button
+                type="submit"
+                disabled={sending || !email.trim()}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+              >
+                {sending ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending…
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Send invite
+                  </>
+                )}
+              </button>
+
+              {mode === 'workspace' && (
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  disabled={sending || !email.trim()}
+                  title="Generate link without sending email"
+                  className="px-3.5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors flex items-center gap-1.5 text-sm font-medium"
+                >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  Send invite
-                </>
+                  Copy link
+                </button>
               )}
-            </button>
+            </div>
           </form>
 
           <p className="text-[11px] text-slate-400 dark:text-slate-500 text-center">

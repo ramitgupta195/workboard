@@ -24,7 +24,7 @@ router.get('/members', auth, async (req, res) => {
 // POST /api/workspace/invite
 router.post('/invite', auth, async (req, res) => {
   try {
-    const { email, role: rawRole } = req.body;
+    const { email, role: rawRole, skipEmail = false } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
     const role = ['admin', 'manager', 'member'].includes(rawRole) ? rawRole : 'admin';
@@ -37,7 +37,7 @@ router.post('/invite', auth, async (req, res) => {
     const inviter = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
     const inviteUrl = `${CLIENT_URL}/workspace-invite/${token}`;
 
-    sendEmail(email,
+    if (!skipEmail) sendEmail(email,
       `You've been invited to join Workboard`,
       `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:520px;margin:0 auto;background:#f8fafc;padding:0">
         <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:40px 32px;border-radius:12px 12px 0 0;text-align:center">
@@ -60,7 +60,7 @@ router.post('/invite', auth, async (req, res) => {
       </div>`
     );
 
-    res.json({ success: true, inviteUrl });
+    res.json({ success: true, inviteUrl, skipEmail });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
