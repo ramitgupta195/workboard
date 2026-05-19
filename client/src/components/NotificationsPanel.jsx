@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { notificationsApi } from '../api';
+import { useNotificationsStore } from '../store/notificationsStore';
 
 function timeAgo(dateStr) {
   if (!dateStr) return '';
@@ -45,15 +45,15 @@ function TypeIcon({ type }) {
 }
 
 export default function NotificationsPanel({ onBoard }) {
+  const { notifications, loading, fetch: fetchNotifications, markRead, markAllRead } = useNotificationsStore();
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
   const panelRef = useRef(null);
 
   const unread = notifications.filter(n => !n.is_read).length;
 
   useEffect(() => {
-    loadNotifications();
-    const interval = setInterval(loadNotifications, 30000);
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -65,23 +65,6 @@ export default function NotificationsPanel({ onBoard }) {
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
-
-  async function loadNotifications() {
-    try {
-      const data = await notificationsApi.list();
-      setNotifications(data);
-    } catch {}
-  }
-
-  async function markRead(id) {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-    try { await notificationsApi.markRead(id); } catch {}
-  }
-
-  async function markAllRead() {
-    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-    try { await notificationsApi.markAllRead(); } catch {}
-  }
 
   return (
     <div className="relative" ref={panelRef}>
@@ -130,7 +113,19 @@ export default function NotificationsPanel({ onBoard }) {
 
           {/* List */}
           <div className="max-h-[360px] overflow-y-auto">
-            {notifications.length === 0 ? (
+            {loading && notifications.length === 0 ? (
+              <div className="divide-y divide-slate-50 dark:divide-slate-700/60">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-start gap-3 px-4 py-3 animate-pulse">
+                    <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                    <div className="flex-1 space-y-1.5">
+                      <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-4/5" />
+                      <div className="h-2.5 bg-slate-100 dark:bg-slate-800 rounded w-1/3" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : notifications.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center px-4">
                 <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center mb-3">
                   <svg className="w-5 h-5 text-slate-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">

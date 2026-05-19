@@ -100,6 +100,7 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   const [description, setDescription] = useState(initialCard.description || '');
   const [editingDesc, setEditingDesc] = useState(false);
   const [comments, setComments] = useState([]);
+  const [loadingComments, setLoadingComments] = useState(true);
   const [activities, setActivities] = useState([]);
   const [activeTab, setActiveTab] = useState('comments');
   const [commentText, setCommentText] = useState('');
@@ -133,7 +134,7 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   const canComment = can?.comment !== false;
 
   useEffect(() => {
-    cardsApi.getComments(card.id).then(setComments);
+    cardsApi.getComments(card.id).then(setComments).finally(() => setLoadingComments(false));
     cardsApi.getActivities(card.id).then(setActivities);
     checklistsApi.list(card.id).then(setChecklists).catch(() => {});
     cardsApi.getAttachments(card.id).then(setAttachments).catch(() => {});
@@ -649,7 +650,20 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
               {activeTab === 'comments' ? (
                 <>
                   <div className="space-y-3 mb-3 max-h-44 overflow-y-auto">
-                    {comments.map(c => (
+                    {loadingComments ? (
+                      [...Array(2)].map((_, i) => (
+                        <div key={i} className="flex gap-2.5 animate-pulse">
+                          <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 space-y-1.5">
+                            <div className="flex gap-2">
+                              <div className="h-2.5 w-20 bg-slate-200 dark:bg-slate-700 rounded" />
+                              <div className="h-2.5 w-12 bg-slate-100 dark:bg-slate-800 rounded" />
+                            </div>
+                            <div className="h-3 bg-slate-100 dark:bg-slate-800 rounded w-4/5" />
+                          </div>
+                        </div>
+                      ))
+                    ) : comments.map(c => (
                       <div key={c.id} className="flex gap-2.5">
                         <UserAvatar user={{ name: c.user_name, avatar_color: c.user_color }} size={28} className="flex-shrink-0 mt-0.5" />
                         <div className="flex-1 min-w-0">
@@ -668,7 +682,7 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
                         </div>
                       </div>
                     ))}
-                    {comments.length === 0 && (
+                    {!loadingComments && comments.length === 0 && (
                       <p className="text-xs text-slate-400 dark:text-slate-500 text-center py-4">No comments yet</p>
                     )}
                   </div>
