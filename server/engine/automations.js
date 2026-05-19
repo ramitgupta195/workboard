@@ -3,10 +3,10 @@ const db = require('../db/database');
 const { getIo } = require('../io');
 
 async function enrichCard(card) {
-  const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
-  const assignees = db.prepare(
-    'SELECT u.id, u.name, u.email, u.avatar_color FROM users u JOIN card_assignees ca ON u.id = ca.user_id WHERE ca.card_id = ?'
-  ).all(card.id);
+  const [labels, assignees] = await Promise.all([
+    db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id),
+    db.prepare('SELECT u.id, u.name, u.email, u.avatar_color FROM users u JOIN card_assignees ca ON u.id = ca.user_id WHERE ca.card_id = ?').all(card.id),
+  ]);
   return { ...card, labels, assignees };
 }
 
@@ -98,7 +98,7 @@ async function runTrigger(triggerType, card, ctx) {
   if (!didRun) return;
 
   try {
-    const fresh = db.prepare('SELECT * FROM cards WHERE id = ?').get(card.id);
+    const fresh = await db.prepare('SELECT * FROM cards WHERE id = ?').get(card.id);
     if (!fresh) return;
     const enriched = await enrichCard(fresh);
     const io = getIo();
