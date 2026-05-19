@@ -1,5 +1,14 @@
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db/database');
+const { getIo } = require('../io');
+
+async function enrichCard(card) {
+  const labels = db.prepare('SELECT * FROM card_labels WHERE card_id = ?').all(card.id);
+  const assignees = db.prepare(
+    'SELECT u.id, u.name, u.email, u.avatar_color FROM users u JOIN card_assignees ca ON u.id = ca.user_id WHERE ca.card_id = ?'
+  ).all(card.id);
+  return { ...card, labels, assignees };
+}
 
 function matchesTrigger(type, config, ctx) {
   switch (type) {
@@ -75,11 +84,35 @@ async function runTrigger(triggerType, card, ctx) {
     'SELECT * FROM automation_rules WHERE board_id = ? AND trigger_type = ? AND is_active = 1'
   ).all(card.board_id, triggerType);
 
+  const originalColumnId = card.column_id;
+  let didRun = false;
+
   for (const rule of rules) {
     const tConfig = JSON.parse(rule.trigger_config || '{}');
     if (!matchesTrigger(triggerType, tConfig, ctx)) continue;
     await executeAction(rule.action_type, JSON.parse(rule.action_config || '{}'), card);
     await logExecution(rule.id, card.id);
+    didRun = true;
+  }
+
+  if (!didRun) return;
+
+  try {
+    const fresh = db.prepare('SELECT * FROM cards WHERE id = ?').get(card.id);
+    if (!fresh) return;
+    const enriched = await enrichCard(fresh);
+    const io = getIo();
+    if (!io) return;
+
+    if (fresh.column_id !== originalColumnId) {
+      io.to(`board:${card.board_id}`).emit('card:moved', {
+        cardId: card.id,
+        destColumnId: fresh.column_id,
+      });
+    }
+    io.to(`board:${card.board_id}`).emit('card:updated', enriched);
+  } catch (err) {
+    console.error('[automation] socket emit failed:', err.message);
   }
 }
 
