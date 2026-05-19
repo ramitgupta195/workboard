@@ -11,7 +11,7 @@ const { notify } = require('../utils/notify');
 const { getIo } = require('../io');
 const fileStorage = require('../utils/fileStorage');
 
-// Multer writes to a temp dir; we move to FTP then delete locally
+// Multer writes to OS temp dir; we upload to Files.com then delete locally
 const UPLOADS_DIR = require('os').tmpdir();
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -322,7 +322,7 @@ router.put('/:id/cover', auth, requirePermission('edit_card'), async (req, res) 
 });
 
 function attachmentUrl(a) {
-  // If FTP is configured, serve via proxy; otherwise fall back to local /uploads
+  // If Files.com is configured, serve via proxy (which redirects to signed S3 URL)
   if (fileStorage.isConfigured()) return `/api/cards/attachments/proxy/${a.id}`;
   return '/uploads/' + a.filename;
 }
@@ -339,14 +339,14 @@ router.get('/:cardId/attachments', auth, async (req, res) => {
   }
 });
 
-// Proxy download — streams file from files.com FTP to the client
+// Proxy — gets a short-lived signed S3 URL from Files.com and redirects to it
 router.get('/attachments/proxy/:id', auth, async (req, res) => {
   try {
     const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
     if (!attachment) return res.status(404).end();
-    res.setHeader('Content-Type', attachment.mimetype || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${attachment.original_name}"`);
-    await fileStorage.downloadFile(attachment.filename, res);
+    const signedUrl = await fileStorage.getDownloadUrl(attachment.filename);
+    if (!signedUrl) return res.status(404).end();
+    res.redirect(signedUrl);
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ error: err.message });
   }
@@ -363,9 +363,21 @@ router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload
     let storedFilename = req.file.filename;
 
     if (fileStorage.isConfigured()) {
-      // Upload to files.com and store the remote path
-      const remotePath = await fileStorage.uploadFile(req.file.path, req.file.filename);
-      storedFilename = remotePath;
+      const basePath = process.env.FILES_BASE_PATH || '/workboard';
+      const filesPath = `${basePath}/attachments/${req.file.filename}`;
+
+      // Two-phase upload: begin → PUT to S3 signed URI → complete
+      const [part] = await fileStorage.beginUpload(filesPath);
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const s3Res = await fetch(part.upload_uri, {
+        method: 'PUT',
+        body: fileBuffer,
+        headers: { 'Content-Type': req.file.mimetype || 'application/octet-stream' },
+      });
+      const etag = s3Res.headers.get('etag');
+      await fileStorage.completeUpload(filesPath, part.ref, etag);
+
+      storedFilename = filesPath;
       fs.unlink(req.file.path, () => {});
     }
 
