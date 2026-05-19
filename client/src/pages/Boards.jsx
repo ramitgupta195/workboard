@@ -116,7 +116,17 @@ export default function Boards() {
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-36 rounded-xl bg-slate-100 animate-pulse" />
+              <div key={i} className="rounded-xl overflow-hidden bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 animate-pulse">
+                <div className="h-16 bg-slate-200 dark:bg-slate-700" />
+                <div className="p-3 space-y-2">
+                  <div className="h-3 bg-slate-200 dark:bg-slate-700 rounded w-3/4" />
+                  <div className="h-2.5 bg-slate-100 dark:bg-slate-600 rounded w-1/2" />
+                  <div className="flex gap-3 pt-1">
+                    <div className="h-2 bg-slate-100 dark:bg-slate-600 rounded w-10" />
+                    <div className="h-2 bg-slate-100 dark:bg-slate-600 rounded w-10" />
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         ) : boards.length === 0 ? (

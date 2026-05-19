@@ -205,8 +205,48 @@ export default function Permissions() {
               Select a board to manage permissions
             </div>
           ) : loadingBoard ? (
-            <div className="flex items-center justify-center h-full text-slate-400 dark:text-slate-600 text-sm animate-pulse">
-              Loading…
+            <div className="max-w-4xl mx-auto px-8 py-8 animate-pulse">
+              {/* header */}
+              <div className="flex items-center gap-3 mb-7">
+                <div className="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-700" />
+                <div className="space-y-1.5">
+                  <div className="h-4 w-40 bg-slate-200 dark:bg-slate-700 rounded" />
+                  <div className="h-3 w-24 bg-slate-100 dark:bg-slate-800 rounded" />
+                </div>
+              </div>
+              <div className="grid grid-cols-5 gap-5">
+                {/* matrix */}
+                <div className="col-span-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div className="h-10 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800" />
+                  {[...Array(6)].map((_, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_80px_80px_80px] items-center px-4 py-3 border-b border-slate-50 dark:border-slate-800/60">
+                      <div className="space-y-1.5">
+                        <div className="h-3 w-32 bg-slate-200 dark:bg-slate-700 rounded" />
+                        <div className="h-2 w-48 bg-slate-100 dark:bg-slate-800 rounded" />
+                      </div>
+                      {[0, 1, 2].map(j => (
+                        <div key={j} className="flex justify-center">
+                          <div className="w-9 h-5 rounded-full bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {/* members */}
+                <div className="col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <div className="h-10 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800" />
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-2.5 px-4 py-2.5 border-b border-slate-50 dark:border-slate-800/60">
+                      <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="h-2.5 w-24 bg-slate-200 dark:bg-slate-700 rounded" />
+                        <div className="h-2 w-32 bg-slate-100 dark:bg-slate-800 rounded" />
+                      </div>
+                      <div className="w-14 h-5 rounded-full bg-slate-100 dark:bg-slate-800" />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="max-w-4xl mx-auto px-8 py-8">

@@ -67,6 +67,7 @@ export default function Board() {
   const [filters, setFilters] = useState({ priority: null, assigneeId: null, search: '' });
   const [viewMode, setViewMode] = useState('board'); // 'board' | 'list' | 'calendar'
   const [showExport, setShowExport] = useState(false);
+  const [automatingCards, setAutomatingCards] = useState(new Set());
 
   const { can, role } = useBoardPermissions(members, rolePermissions);
 
@@ -109,6 +110,9 @@ export default function Board() {
         )
       );
     },
+    'automation:running': ({ cardId }) => {
+      setAutomatingCards(prev => new Set([...prev, cardId]));
+    },
     'card:updated': (card) => {
       setColumns(prev =>
         prev.map(col => ({
@@ -117,6 +121,9 @@ export default function Board() {
         }))
       );
       setSelectedCard(prev => prev?.id === card.id ? { ...prev, ...card } : prev);
+      if (card._fromAutomation) {
+        setAutomatingCards(prev => { const next = new Set(prev); next.delete(card.id); return next; });
+      }
     },
     'card:moved': ({ cardId, destColumnId, columnOrders }) => {
       setColumns(prev => {
@@ -282,8 +289,19 @@ export default function Board() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-1 flex items-center justify-center">
-        <div className="text-white text-sm animate-pulse">Loading board…</div>
+      <div className="min-h-screen flex flex-col bg-gradient-1">
+        <div className="h-[52px] bg-black/20" />
+        <div className="h-9 bg-black/10 mx-4 mt-2 rounded-lg" />
+        <div className="flex gap-4 px-4 pt-4 overflow-hidden">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="w-72 flex-shrink-0 rounded-2xl bg-white/10 animate-pulse p-3 space-y-2">
+              <div className="h-5 bg-white/20 rounded w-1/2 mb-3" />
+              {[...Array(i === 1 ? 3 : i === 2 ? 2 : 1)].map((_, j) => (
+                <div key={j} className="h-20 bg-white/20 rounded-xl" />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -405,6 +423,7 @@ export default function Board() {
                   onCardCreated={handleCardCreated}
                   onColumnUpdated={handleColumnUpdated}
                   onColumnDeleted={handleColumnDeleted}
+                  automatingCards={automatingCards}
                 />
               ))}
             </SortableContext>

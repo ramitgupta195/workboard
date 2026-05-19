@@ -87,6 +87,11 @@ async function runTrigger(triggerType, card, ctx) {
   const originalColumnId = card.column_id;
   let didRun = false;
 
+  // Emit running indicator before executing
+  try {
+    getIo()?.to(`board:${card.board_id}`).emit('automation:running', { cardId: card.id });
+  } catch {}
+
   for (const rule of rules) {
     const tConfig = JSON.parse(rule.trigger_config || '{}');
     if (!matchesTrigger(triggerType, tConfig, ctx)) continue;
@@ -110,7 +115,7 @@ async function runTrigger(triggerType, card, ctx) {
         destColumnId: fresh.column_id,
       });
     }
-    io.to(`board:${card.board_id}`).emit('card:updated', enriched);
+    io.to(`board:${card.board_id}`).emit('card:updated', { ...enriched, _fromAutomation: true });
   } catch (err) {
     console.error('[automation] socket emit failed:', err.message);
   }

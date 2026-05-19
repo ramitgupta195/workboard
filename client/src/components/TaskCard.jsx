@@ -17,7 +17,7 @@ const PRIORITY_ICONS = {
   urgent: { path: 'M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z', label: '!!' },
 };
 
-export default function TaskCard({ card, columnTitle, columnColor, onClick, isDragOverlay, canDrag = true }) {
+export default function TaskCard({ card, columnTitle, columnColor, onClick, isDragOverlay, canDrag = true, isAutomating = false }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { type: 'card', card },
@@ -35,11 +35,12 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
   const priorityColor = PRIORITY_COLORS[priority];
 
   const cls = [
-    'task-card',
+    'task-card relative',
     priority !== 'none' ? `priority-${priority}` : '',
     isDragging ? 'dragging' : '',
     isDragOverlay ? 'drag-overlay' : '',
     !canDrag && !isDragOverlay ? 'cursor-default' : '',
+    isAutomating ? 'ring-2 ring-indigo-400/60 ring-offset-1 animate-pulse' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -50,6 +51,11 @@ export default function TaskCard({ card, columnTitle, columnColor, onClick, isDr
       {...(isDragOverlay ? {} : { ...attributes, ...listeners })}
       onClick={isDragOverlay ? undefined : onClick}
     >
+      {isAutomating && (
+        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 bg-indigo-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full shadow-sm animate-pulse">
+          ⚡
+        </div>
+      )}
       {/* Cover image */}
       {card.cover_image && (
         <div className="rounded-lg overflow-hidden mb-2.5 -mx-0.5">

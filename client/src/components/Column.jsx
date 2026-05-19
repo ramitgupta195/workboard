@@ -73,7 +73,7 @@ function ColumnMenu({ column, onColorChange, onDelete }) {
   );
 }
 
-export default function Column({ column, can, onCardClick, onCardCreated, onColumnUpdated, onColumnDeleted, isDragOverlay }) {
+export default function Column({ column, can, onCardClick, onCardCreated, onColumnUpdated, onColumnDeleted, isDragOverlay, automatingCards }) {
   const user = useAuthStore(s => s.user);
   const [addingCard, setAddingCard] = useState(false);
   const [newCardTitle, setNewCardTitle] = useState('');
@@ -201,6 +201,7 @@ export default function Column({ column, can, onCardClick, onCardCreated, onColu
                 columnColor={column.color}
                 canDrag={canDrag}
                 onClick={() => onCardClick(card)}
+                isAutomating={automatingCards?.has(card.id)}
               />
             );
           })}
