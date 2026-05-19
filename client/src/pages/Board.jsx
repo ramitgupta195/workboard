@@ -66,6 +66,7 @@ export default function Board() {
   const [showSearch, setShowSearch] = useState(false);
   const [filters, setFilters] = useState({ priority: null, assigneeId: null, search: '' });
   const [viewMode, setViewMode] = useState('board'); // 'board' | 'list' | 'calendar'
+  const [showExport, setShowExport] = useState(false);
 
   const { can, role } = useBoardPermissions(members, rolePermissions);
 
@@ -290,7 +291,6 @@ export default function Board() {
   const columnIds = columns.map(c => c.id);
   const displayColumns = applyFilters(columns, filters);
   const hasActiveFilter = !!(filters.priority || filters.assigneeId || filters.search);
-  const [showExport, setShowExport] = useState(false);
 
   return (
     <div className={`min-h-screen flex flex-col bg-${board?.background || 'gradient-1'}`}>
