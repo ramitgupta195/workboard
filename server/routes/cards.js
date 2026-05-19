@@ -376,7 +376,7 @@ router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload
       const board = await db.prepare('SELECT title FROM boards WHERE id = ?').get(card.board_id);
       const boardSlug = slugify(board?.title);
       const cardSlug = slugify(card.title);
-      const filesPath = `${basePath}/${boardSlug}/${cardSlug}/${req.file.filename}`;
+      const filesPath = `${basePath}/${boardSlug}/${cardSlug}/${req.file.originalname}`;
 
       // Two-phase upload: begin → PUT to S3 signed URI → complete
       const [part] = await fileStorage.beginUpload(filesPath);
