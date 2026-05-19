@@ -5,12 +5,6 @@ import { useAuthStore } from '../store/authStore';
 import Navbar from '../components/Navbar';
 import UserAvatar from '../components/UserAvatar';
 
-const COLORS = [
-  '#94a3b8', '#6366f1', '#8b5cf6', '#a855f7',
-  '#ec4899', '#ef4444', '#f97316', '#eab308',
-  '#22c55e', '#10b981', '#06b6d4', '#3b82f6',
-];
-
 export default function Profile() {
   const user = useAuthStore(s => s.user);
   const login = useAuthStore(s => s.login);
@@ -19,7 +13,6 @@ export default function Profile() {
 
   const [profileForm, setProfileForm] = useState({
     name: user?.name || '',
-    avatar_color: user?.avatar_color || '#6366f1',
   });
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState('');
@@ -114,22 +107,10 @@ export default function Profile() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Avatar color</label>
-              <div className="flex flex-wrap gap-2">
-                {COLORS.map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setProfileForm(f => ({ ...f, avatar_color: c }))}
-                    className="w-8 h-8 rounded-full transition-transform focus:outline-none"
-                    style={{
-                      background: c,
-                      transform: profileForm.avatar_color === c ? 'scale(1.2)' : 'scale(1)',
-                      boxShadow: profileForm.avatar_color === c ? `0 0 0 2px white, 0 0 0 3.5px ${c}` : 'none',
-                    }}
-                    title={c}
-                  />
-                ))}
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">Avatar</label>
+              <div className="flex items-center gap-3">
+                <UserAvatar user={user} size={48} />
+                <p className="text-sm text-slate-400 dark:text-slate-500">Your avatar is generated automatically from your account.</p>
               </div>
             </div>
             <button
