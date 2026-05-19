@@ -17,7 +17,8 @@ async function ensureParentFolder(filePath) {
     const dir = segments.slice(0, i).join('/');
     const res = await fetch(`${BASE()}/folders/${dir}`, { method: 'POST', headers: ah() });
     if (!res.ok && res.status !== 422) {
-      console.warn(`[files.com] ensureFolder ${dir} → ${res.status}`);
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Files.com: failed to create folder "${dir}" (${res.status}): ${txt}`);
     }
   }
 }
