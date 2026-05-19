@@ -9,12 +9,10 @@ const { requirePermission, getPermissions } = require('../middleware/boardPermis
 const { runTrigger } = require('../engine/automations');
 const { notify } = require('../utils/notify');
 const { getIo } = require('../io');
+const fileStorage = require('../utils/fileStorage');
 
-const UPLOADS_DIR = process.env.DATA_DIR
-  ? path.join(process.env.DATA_DIR, 'uploads')
-  : path.join(__dirname, '..', 'uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
+// Multer writes to a temp dir; we move to FTP then delete locally
+const UPLOADS_DIR = require('os').tmpdir();
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
@@ -323,15 +321,34 @@ router.put('/:id/cover', auth, requirePermission('edit_card'), async (req, res) 
   }
 });
 
+function attachmentUrl(a) {
+  // If FTP is configured, serve via proxy; otherwise fall back to local /uploads
+  if (fileStorage.isConfigured()) return `/api/cards/attachments/proxy/${a.id}`;
+  return '/uploads/' + a.filename;
+}
+
 router.get('/:cardId/attachments', auth, async (req, res) => {
   try {
     const card = await db.prepare('SELECT * FROM cards WHERE id = ?').get(req.params.cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
     const attachments = await db.prepare('SELECT * FROM card_attachments WHERE card_id = ? ORDER BY created_at').all(req.params.cardId);
-    res.json(attachments.map(a => ({ ...a, url: '/uploads/' + a.filename })));
+    res.json(attachments.map(a => ({ ...a, url: attachmentUrl(a) })));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Proxy download — streams file from files.com FTP to the client
+router.get('/attachments/proxy/:id', auth, async (req, res) => {
+  try {
+    const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
+    if (!attachment) return res.status(404).end();
+    res.setHeader('Content-Type', attachment.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${attachment.original_name}"`);
+    await fileStorage.downloadFile(attachment.filename, res);
+  } catch (err) {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 
@@ -343,11 +360,20 @@ router.post('/:cardId/attachments', auth, requirePermission('edit_card'), upload
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
     const id = uuidv4();
+    let storedFilename = req.file.filename;
+
+    if (fileStorage.isConfigured()) {
+      // Upload to files.com and store the remote path
+      const remotePath = await fileStorage.uploadFile(req.file.path, req.file.filename);
+      storedFilename = remotePath;
+      fs.unlink(req.file.path, () => {});
+    }
+
     await db.prepare('INSERT INTO card_attachments (id, card_id, user_id, filename, original_name, mimetype, size) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, req.params.cardId, req.user.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size);
+      .run(id, req.params.cardId, req.user.id, storedFilename, req.file.originalname, req.file.mimetype, req.file.size);
 
     const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(id);
-    res.json({ ...attachment, url: '/uploads/' + attachment.filename });
+    res.json({ ...attachment, url: attachmentUrl(attachment) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -358,8 +384,12 @@ router.delete('/attachments/:id', auth, requirePermission('edit_card'), async (r
     const attachment = await db.prepare('SELECT * FROM card_attachments WHERE id = ?').get(req.params.id);
     if (!attachment) return res.status(404).json({ error: 'Attachment not found' });
 
-    const filePath = path.join(UPLOADS_DIR, attachment.filename);
-    try { fs.unlinkSync(filePath); } catch (_) {}
+    if (fileStorage.isConfigured()) {
+      await fileStorage.deleteFile(attachment.filename);
+    } else {
+      try { fs.unlinkSync(path.join(UPLOADS_DIR, attachment.filename)); } catch (_) {}
+    }
+
     await db.prepare('DELETE FROM card_attachments WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {
