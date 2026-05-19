@@ -18,13 +18,17 @@ function getGmailClient() {
   return google.gmail({ version: 'v1', auth });
 }
 
+function encodeSubject(str) {
+  return `=?UTF-8?B?${Buffer.from(str).toString('base64')}?=`;
+}
+
 function makeMime(to, from, subject, html) {
   const boundary = 'workboard_boundary';
   const htmlB64 = Buffer.from(html).toString('base64');
   const mime = [
     `From: "Workboard" <${from}>`,
     `To: ${to}`,
-    `Subject: ${subject}`,
+    `Subject: ${encodeSubject(subject)}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     '',
