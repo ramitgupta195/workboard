@@ -12,6 +12,7 @@ import ResetPassword from './pages/ResetPassword';
 import Profile from './pages/Profile';
 import MyTasks from './pages/MyTasks';
 import AcceptInvite from './pages/AcceptInvite';
+import AcceptWorkspaceInvite from './pages/AcceptWorkspaceInvite';
 import FileExplorer from './pages/FileExplorer';
 
 function PrivateRoute({ children }) {
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/invite/:token" element={<AcceptInvite />} />
+        <Route path="/workspace-invite/:token" element={<AcceptWorkspaceInvite />} />
         <Route path="/" element={<PrivateRoute><Boards /></PrivateRoute>} />
         <Route path="/boards/:id" element={<PrivateRoute><Board /></PrivateRoute>} />
         <Route path="/boards/:id/automations" element={<PrivateRoute><Automations /></PrivateRoute>} />

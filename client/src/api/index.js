@@ -112,6 +112,14 @@ export const invitesApi = {
   accept: token => api.post(`/invites/${token}/accept`),
 };
 
+export const workspaceApi = {
+  getMembers: () => api.get('/workspace/members'),
+  invite: (email, role = 'admin') => api.post('/workspace/invite', { email, role }),
+  getInvite: token => api.get(`/workspace/invite/${token}`),
+  acceptInvite: token => api.post(`/workspace/invite/${token}/accept`),
+  removeMember: userId => api.delete(`/workspace/members/${userId}`),
+};
+
 export const exportApi = {
   csv: boardId => `/api/boards/${boardId}/export`,
 };

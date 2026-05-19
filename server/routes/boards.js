@@ -48,6 +48,12 @@ router.post('/', auth, async (req, res) => {
 
     await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(id, req.user.id, 'owner');
 
+    // Auto-add workspace members (skip the creator)
+    const wsMembers = await db.prepare('SELECT user_id, role FROM workspace_members WHERE user_id != ?').all(req.user.id);
+    for (const wm of wsMembers) {
+      await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(id, wm.user_id, wm.role);
+    }
+
     const defaultCols = [
       { title: 'To Do', color: '#94a3b8' },
       { title: 'In Progress', color: '#3b82f6' },

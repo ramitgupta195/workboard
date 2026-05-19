@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { invitesApi } from '../api';
+import { invitesApi, workspaceApi } from '../api';
 
 const ROLES = [
   { value: 'admin',   label: 'Admin',   desc: 'Full board access + invite others', color: 'text-violet-600 dark:text-violet-400' },
@@ -8,6 +8,7 @@ const ROLES = [
 ];
 
 export default function InviteModal({ boardId, boardTitle, onClose }) {
+  const [mode, setMode] = useState('board'); // 'board' | 'workspace'
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('admin');
   const [sending, setSending] = useState(false);
@@ -20,7 +21,11 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
     setSending(true);
     setError('');
     try {
-      await invitesApi.create(boardId, email.trim(), role);
+      if (mode === 'workspace') {
+        await workspaceApi.invite(email.trim(), role);
+      } else {
+        await invitesApi.create(boardId, email.trim(), role);
+      }
       setSent(email.trim());
       setEmail('');
     } catch (err) {
@@ -30,6 +35,12 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
     }
   }
 
+  function switchMode(m) {
+    setMode(m);
+    setSent('');
+    setError('');
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-slide-up">
@@ -37,8 +48,10 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-700">
           <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Invite to board</h2>
-            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[260px]">{boardTitle}</p>
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Invite people</h2>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[260px]">
+              {mode === 'workspace' ? 'All boards in workspace' : boardTitle}
+            </p>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -48,6 +61,42 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
         </div>
 
         <div className="px-6 py-5 space-y-5">
+
+          {/* Mode toggle */}
+          <div className="flex rounded-xl bg-slate-100 dark:bg-slate-700/60 p-1 gap-1">
+            <button
+              onClick={() => switchMode('board')}
+              className={`flex-1 text-xs font-semibold py-2 rounded-lg transition-all ${
+                mode === 'board'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              This board
+            </button>
+            <button
+              onClick={() => switchMode('workspace')}
+              className={`flex-1 text-xs font-semibold py-2 rounded-lg transition-all ${
+                mode === 'workspace'
+                  ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              All boards
+            </button>
+          </div>
+
+          {/* Workspace info banner */}
+          {mode === 'workspace' && (
+            <div className="flex items-start gap-2.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/40 rounded-xl px-3.5 py-3">
+              <svg className="w-4 h-4 text-indigo-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+              <p className="text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
+                This person will be added to <strong>all existing boards</strong> and automatically added to <strong>any new boards</strong> you create.
+              </p>
+            </div>
+          )}
 
           {/* Role picker */}
           <div>
@@ -70,7 +119,7 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
             </div>
           </div>
 
-          {/* Info banner for admin */}
+          {/* Admin info banner */}
           {role === 'admin' && (
             <div className="flex items-start gap-2.5 bg-violet-50 dark:bg-violet-950/30 border border-violet-100 dark:border-violet-900/40 rounded-xl px-3.5 py-3">
               <svg className="w-4 h-4 text-violet-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -119,7 +168,7 @@ export default function InviteModal({ boardId, boardTitle, onClose }) {
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                   Send invite
                 </>

@@ -56,6 +56,7 @@ app.use('/api/checklists', require('./routes/checklists'));
 app.use('/api/my-tasks', require('./routes/myTasks'));
 app.use('/api/invites', require('./routes/invites'));
 app.use('/api/file-explorer', require('./routes/fileExplorer'));
+app.use('/api/workspace', require('./routes/workspace'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

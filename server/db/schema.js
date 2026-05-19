@@ -195,6 +195,22 @@ async function initSchema() {
       FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE,
       FOREIGN KEY (created_by) REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT DEFAULT 'admin',
+      added_by TEXT REFERENCES users(id),
+      added_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_invites (
+      token TEXT PRIMARY KEY,
+      invited_email TEXT NOT NULL,
+      role TEXT DEFAULT 'admin',
+      invited_by TEXT REFERENCES users(id),
+      expires_at TIMESTAMPTZ NOT NULL,
+      used SMALLINT DEFAULT 0
+    );
   `);
 }
 
