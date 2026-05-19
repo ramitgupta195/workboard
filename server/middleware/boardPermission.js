@@ -6,14 +6,17 @@ const DEFAULT_PERMISSIONS = {
   admin: {
     create_card: true, edit_card: true, delete_card: true, move_card: true, move_any_card: true,
     comment: true, manage_columns: true, manage_members: true, manage_automations: true,
+    view_files: true, delete_files: true,
   },
   manager: {
     create_card: true, edit_card: true, delete_card: true, move_card: true, move_any_card: true,
     comment: true, manage_columns: true, manage_members: false, manage_automations: false,
+    view_files: true, delete_files: false,
   },
   member: {
     create_card: true, edit_card: true, delete_card: false, move_card: true, move_any_card: false,
     comment: true, manage_columns: false, manage_members: false, manage_automations: false,
+    view_files: false, delete_files: false,
   },
 };
 

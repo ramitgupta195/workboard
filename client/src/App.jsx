@@ -12,6 +12,7 @@ import ResetPassword from './pages/ResetPassword';
 import Profile from './pages/Profile';
 import MyTasks from './pages/MyTasks';
 import AcceptInvite from './pages/AcceptInvite';
+import FileExplorer from './pages/FileExplorer';
 
 function PrivateRoute({ children }) {
   const user = useAuthStore(s => s.user);
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/permissions" element={<PrivateRoute><Permissions /></PrivateRoute>} />
         <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
         <Route path="/my-tasks" element={<PrivateRoute><MyTasks /></PrivateRoute>} />
+        <Route path="/files" element={<PrivateRoute><FileExplorer /></PrivateRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

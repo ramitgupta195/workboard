@@ -180,6 +180,16 @@ export default function Navbar({ title, boardBackground, boardId, canManageBoard
               </svg>
               My Tasks
             </Link>
+            <Link
+              to="/files"
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+              </svg>
+              File Explorer
+            </Link>
             <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
               <button
                 onClick={() => { setMenuOpen(false); logout(); navigate('/login'); }}
