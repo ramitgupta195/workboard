@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { boardsApi, invitesApi } from '../api';
 import { useAuthStore } from '../store/authStore';
+import { useBoardsStore } from '../store/boardsStore';
 import { PERMISSION_DEFS, DEFAULT_PERMISSIONS } from '../hooks/useBoardPermissions';
 import Navbar from '../components/Navbar';
 import UserAvatar from '../components/UserAvatar';
@@ -47,6 +48,7 @@ export default function Permissions() {
   const user = useAuthStore(s => s.user);
   const navigate = useNavigate();
 
+  const { boards: allBoardsRaw, fetch: fetchBoards } = useBoardsStore();
   const [allBoards, setAllBoards] = useState([]);
   const [selectedBoard, setSelectedBoard] = useState(null);
   const [members, setMembers] = useState([]);
@@ -61,14 +63,13 @@ export default function Permissions() {
   const [inviteSentTo, setInviteSentTo] = useState('');
   const [inviteError, setInviteError] = useState('');
 
-  // Load boards list
+  // Load boards list from shared store
+  useEffect(() => { fetchBoards(); }, []);
   useEffect(() => {
-    boardsApi.list().then(boards => {
-      const manageable = boards.filter(b => b.created_by === user?.id || b.user_role === 'admin');
-      setAllBoards(manageable);
-      if (manageable.length > 0) loadBoard(manageable[0].id);
-    });
-  }, []);
+    const manageable = allBoardsRaw.filter(b => b.created_by === user?.id || b.user_role === 'admin');
+    setAllBoards(manageable);
+    if (manageable.length > 0 && !selectedBoard) loadBoard(manageable[0].id);
+  }, [allBoardsRaw]);
 
   async function loadBoard(boardId) {
     setLoadingBoard(true);

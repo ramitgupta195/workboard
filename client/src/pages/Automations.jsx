@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { boardsApi, automationsApi } from '../api';
+import { useBoardsStore } from '../store/boardsStore';
 import Navbar from '../components/Navbar';
 import RuleBuilder from '../components/RuleBuilder';
 
@@ -117,8 +118,8 @@ function RuleCard({ rule, columns, members, onToggle, onEdit, onDelete }) {
 
 export default function Automations() {
   const { id } = useParams();
+  const { boards: allBoards, fetch: fetchBoards } = useBoardsStore();
   const [board, setBoard] = useState(null);
-  const [allBoards, setAllBoards] = useState([]);
   const [rules, setRules] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -127,8 +128,9 @@ export default function Automations() {
   const [activeTab, setActiveTab] = useState('rules');
 
   useEffect(() => {
-    Promise.all([boardsApi.get(id), boardsApi.list(), automationsApi.list(id), automationsApi.getLogs(id)])
-      .then(([b, allB, r, l]) => { setBoard(b); setAllBoards(allB); setRules(r); setLogs(l); })
+    fetchBoards();
+    Promise.all([boardsApi.get(id), automationsApi.list(id), automationsApi.getLogs(id)])
+      .then(([b, r, l]) => { setBoard(b); setRules(r); setLogs(l); })
       .finally(() => setLoading(false));
   }, [id]);
 

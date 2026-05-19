@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { boardsApi } from '../api';
 import { useAuthStore } from '../store/authStore';
+import { useBoardsStore } from '../store/boardsStore';
 import Navbar from '../components/Navbar';
 import CreateBoardModal from '../components/CreateBoardModal';
 
@@ -54,15 +54,12 @@ function BoardTile({ board, onClick }) {
 }
 
 export default function Boards() {
-  const [boards, setBoards] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { boards, loading, fetch: fetchBoards, add: addBoard } = useBoardsStore();
   const [showCreate, setShowCreate] = useState(false);
   const user = useAuthStore(s => s.user);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    boardsApi.list().then(setBoards).finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { fetchBoards(); }, []);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-300">
@@ -167,7 +164,7 @@ export default function Boards() {
         <CreateBoardModal
           onClose={() => setShowCreate(false)}
           onCreated={board => {
-            setBoards(bs => [board, ...bs]);
+            addBoard(board);
             setShowCreate(false);
             navigate(`/boards/${board.id}`);
           }}
