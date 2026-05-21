@@ -265,7 +265,11 @@ export default function Board() {
 
   function handleCardCreated(columnId, card) {
     setColumns(prev =>
-      prev.map(col => col.id === columnId ? { ...col, cards: [...col.cards, card] } : col)
+      prev.map(col =>
+        col.id === columnId && !col.cards.some(c => c.id === card.id)
+          ? { ...col, cards: [...col.cards, card] }
+          : col
+      )
     );
   }
 
