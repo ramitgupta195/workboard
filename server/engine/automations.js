@@ -86,15 +86,15 @@ async function runTrigger(triggerType, card, ctx) {
 
   const originalColumnId = card.column_id;
   let didRun = false;
-
-  // Emit running indicator before executing
-  try {
-    getIo()?.to(`board:${card.board_id}`).emit('automation:running', { cardId: card.id });
-  } catch {}
+  let emittedRunning = false;
 
   for (const rule of rules) {
     const tConfig = JSON.parse(rule.trigger_config || '{}');
     if (!matchesTrigger(triggerType, tConfig, ctx)) continue;
+    if (!emittedRunning) {
+      try { getIo()?.to(`board:${card.board_id}`).emit('automation:running', { cardId: card.id }); } catch {}
+      emittedRunning = true;
+    }
     await executeAction(rule.action_type, JSON.parse(rule.action_config || '{}'), card);
     await logExecution(rule.id, card.id);
     didRun = true;
