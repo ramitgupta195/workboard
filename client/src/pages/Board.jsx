@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DndContext,
@@ -129,15 +129,19 @@ export default function Board() {
     },
     'card:moved': ({ cardId, destColumnId, columnOrders }) => {
       setColumns(prev => {
-        const next = prev.map(c => ({ ...c, cards: [...c.cards] }));
-        const srcCol = next.find(c => c.cards.some(card => card.id === cardId));
-        const dstCol = next.find(c => c.id === destColumnId);
-        if (!srcCol || !dstCol || srcCol.id === dstCol.id) return prev;
-        const idx = srcCol.cards.findIndex(c => c.id === cardId);
-        const [moved] = srcCol.cards.splice(idx, 1);
-        moved.column_id = destColumnId;
-        dstCol.cards.push(moved);
-        return next;
+        // Flatten all cards so we can rebuild from columnOrders
+        const allCards = new Map();
+        prev.forEach(col => col.cards.forEach(card => allCards.set(card.id, card)));
+        const moved = allCards.get(cardId);
+        if (moved && moved.column_id !== destColumnId) {
+          allCards.set(cardId, { ...moved, column_id: destColumnId });
+        }
+        return prev.map(col => {
+          const orderedIds = columnOrders?.[col.id];
+          if (!orderedIds) return col;
+          const cards = orderedIds.map(id => allCards.get(id)).filter(Boolean);
+          return { ...col, cards };
+        });
       });
     },
     'card:deleted': ({ cardId }) => {
@@ -160,6 +164,12 @@ export default function Board() {
     },
     'column:deleted': ({ columnId }) => {
       setColumns(prev => prev.filter(c => c.id !== columnId));
+    },
+    'columns:reordered': ({ columnIds }) => {
+      setColumns(prev => {
+        const byId = new Map(prev.map(c => [c.id, c]));
+        return columnIds.map(id => byId.get(id)).filter(Boolean);
+      });
     },
   });
 
@@ -314,7 +324,6 @@ export default function Board() {
 
   const columnIds = columns.map(c => c.id);
   const displayColumns = applyFilters(columns, filters);
-  const hasActiveFilter = !!(filters.priority || filters.assigneeId || filters.search);
 
   return (
     <div className={`min-h-screen flex flex-col bg-${board?.background || 'gradient-1'}`}>

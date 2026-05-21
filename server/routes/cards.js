@@ -207,9 +207,9 @@ router.post('/move', auth, async (req, res) => {
 
       const srcColTitle = (await db.prepare('SELECT title FROM columns WHERE id = ?').get(sourceColumnId))?.title;
       logActivity(cardId, req.user.id, 'moved', { from: srcColTitle, to: destCol?.title });
-
-      try { getIo()?.to(`board:${oldCard.board_id}`).emit('card:moved', { cardId, destColumnId, columnOrders }); } catch {}
     }
+
+    try { getIo()?.to(`board:${oldCard.board_id}`).emit('card:moved', { cardId, destColumnId, columnOrders, movedBy: req.user.id }); } catch {}
 
     res.json({ success: true });
   } catch (err) {

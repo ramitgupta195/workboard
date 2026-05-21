@@ -271,6 +271,7 @@ router.post('/:id/columns/reorder', auth, requirePermission('manage_columns'), a
         await client.query('UPDATE columns SET position = $1 WHERE id = $2', [i, columnIds[i]]);
       }
     });
+    try { getIo()?.to(`board:${req.params.id}`).emit('columns:reordered', { columnIds }); } catch {}
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
