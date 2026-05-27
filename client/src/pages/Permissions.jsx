@@ -69,7 +69,7 @@ export default function Permissions() {
     const manageable = allBoardsRaw.filter(b => b.created_by === user?.id || b.user_role === 'admin');
     setAllBoards(manageable);
     if (manageable.length > 0 && !selectedBoard) loadBoard(manageable[0].id);
-  }, [allBoardsRaw]);
+  }, [allBoardsRaw, user?.id]);
 
   async function loadBoard(boardId) {
     setLoadingBoard(true);

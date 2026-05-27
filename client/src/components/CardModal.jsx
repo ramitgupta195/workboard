@@ -301,14 +301,10 @@ export default function CardModal({ card: initialCard, boardMembers, columns, ca
   async function handleDeleteAttachment(attId) {
     await cardsApi.deleteAttachment(attId);
     setAttachments(prev => prev.filter(a => a.id !== attId));
-    // If it was the cover, clear it
-    if (card.cover_image) {
-      const att = attachments.find(a => a.id === attId);
-      if (att && card.cover_image.includes(att.filename)) {
-        const updated = await cardsApi.setCover(card.id, null);
-        setCard(updated);
-        onUpdated(updated);
-      }
+    if (card.cover_attachment_id === attId) {
+      const updated = await cardsApi.setCover(card.id, null);
+      setCard(updated);
+      onUpdated(updated);
     }
   }
 

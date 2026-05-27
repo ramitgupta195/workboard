@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { v4: uuidv4 } = require('uuid');
 const db = require('../db/database');
 const auth = require('../middleware/auth');
+const { requirePermission } = require('../middleware/boardPermission');
 
 function parseRule(r) {
   return {
@@ -12,7 +13,7 @@ function parseRule(r) {
   };
 }
 
-router.get('/boards/:boardId', auth, async (req, res) => {
+router.get('/boards/:boardId', auth, requirePermission('manage_automations'), async (req, res) => {
   try {
     const rules = await db.prepare('SELECT * FROM automation_rules WHERE board_id = ? ORDER BY created_at').all(req.params.boardId);
     res.json(rules.map(parseRule));
@@ -21,7 +22,7 @@ router.get('/boards/:boardId', auth, async (req, res) => {
   }
 });
 
-router.post('/boards/:boardId', auth, async (req, res) => {
+router.post('/boards/:boardId', auth, requirePermission('manage_automations'), async (req, res) => {
   try {
     const { name, trigger_type, trigger_config, action_type, action_config } = req.body;
     if (!name || !trigger_type || !action_type) return res.status(400).json({ error: 'Missing fields' });
@@ -37,7 +38,7 @@ router.post('/boards/:boardId', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, requirePermission('manage_automations'), async (req, res) => {
   try {
     const { name, trigger_type, trigger_config, action_type, action_config, is_active } = req.body;
     await db.prepare('UPDATE automation_rules SET name = ?, trigger_type = ?, trigger_config = ?, action_type = ?, action_config = ?, is_active = ? WHERE id = ?')
@@ -50,7 +51,7 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, requirePermission('manage_automations'), async (req, res) => {
   try {
     await db.prepare('DELETE FROM automation_rules WHERE id = ?').run(req.params.id);
     res.json({ success: true });
@@ -59,7 +60,7 @@ router.delete('/:id', auth, async (req, res) => {
   }
 });
 
-router.get('/boards/:boardId/logs', auth, async (req, res) => {
+router.get('/boards/:boardId/logs', auth, requirePermission('manage_automations'), async (req, res) => {
   try {
     const logs = await db.prepare(`
       SELECT al.id, al.executed_at, ar.name as rule_name, ar.trigger_type, ar.action_type, c.title as card_title
