@@ -298,7 +298,7 @@ export default function Board() {
     e.preventDefault();
     if (!newColTitle.trim()) return;
     const col = await boardsApi.createColumn(id, { title: newColTitle.trim() });
-    setColumns(prev => [...prev, { ...col, cards: [] }]);
+    setColumns(prev => prev.some(c => c.id === col.id) ? prev : [...prev, { ...col, cards: [] }]);
     setNewColTitle('');
     setAddingColumn(false);
   }
