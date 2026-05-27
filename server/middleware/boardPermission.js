@@ -89,7 +89,14 @@ function requirePermission(permission) {
       const boardId = await resolveBoardId(req);
       if (!boardId) return res.status(400).json({ error: 'Cannot determine board' });
 
-      const member = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
+      let member = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(boardId, req.user.id);
+
+      // Workspace admins have full access to all boards even without a board_members row
+      if (!member) {
+        const wsAdmin = await db.prepare(`SELECT 1 FROM workspace_members WHERE user_id = ? AND role = 'admin'`).get(req.user.id);
+        if (wsAdmin) member = { role: 'owner' };
+      }
+
       if (!member) return res.status(403).json({ error: 'Not a board member' });
 
       req.boardRole = member.role;

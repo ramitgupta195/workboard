@@ -14,14 +14,27 @@ const BACKGROUNDS = ['gradient-1','gradient-2','gradient-3','gradient-4','gradie
 
 router.get('/', auth, async (req, res) => {
   try {
-    const boards = await db.prepare(`
-      SELECT b.*, u.name as creator_name, COALESCE(bm.role, 'owner') as user_role
-      FROM boards b
-      JOIN users u ON b.created_by = u.id
-      LEFT JOIN board_members bm ON b.id = bm.board_id AND bm.user_id = ?
-      WHERE bm.user_id = ? OR b.created_by = ?
-      ORDER BY b.created_at DESC
-    `).all(req.user.id, req.user.id, req.user.id);
+    // Workspace admins see all boards; others see only boards they're on or created
+    const isWorkspaceAdmin = await db.prepare(
+      `SELECT 1 FROM workspace_members WHERE user_id = ? AND role = 'admin'`
+    ).get(req.user.id);
+
+    const boards = isWorkspaceAdmin
+      ? await db.prepare(`
+          SELECT b.*, u.name as creator_name, COALESCE(bm.role, 'admin') as user_role
+          FROM boards b
+          JOIN users u ON b.created_by = u.id
+          LEFT JOIN board_members bm ON b.id = bm.board_id AND bm.user_id = ?
+          ORDER BY b.created_at DESC
+        `).all(req.user.id)
+      : await db.prepare(`
+          SELECT b.*, u.name as creator_name, COALESCE(bm.role, 'owner') as user_role
+          FROM boards b
+          JOIN users u ON b.created_by = u.id
+          LEFT JOIN board_members bm ON b.id = bm.board_id AND bm.user_id = ?
+          WHERE bm.user_id = ? OR b.created_by = ?
+          ORDER BY b.created_at DESC
+        `).all(req.user.id, req.user.id, req.user.id);
 
     const result = await Promise.all(boards.map(async b => {
       const mc = await db.prepare('SELECT COUNT(*)::int as c FROM board_members WHERE board_id = ?').get(b.id);
@@ -48,8 +61,10 @@ router.post('/', auth, async (req, res) => {
 
     await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(id, req.user.id, 'owner');
 
-    // Auto-add workspace members (skip the creator)
-    const wsMembers = await db.prepare('SELECT user_id, role FROM workspace_members WHERE user_id != ?').all(req.user.id);
+    // Auto-add non-admin workspace members (admins access via workspace_members check, staying invisible)
+    const wsMembers = await db.prepare(
+      `SELECT user_id, role FROM workspace_members WHERE user_id != ? AND role != 'admin'`
+    ).all(req.user.id);
     for (const wm of wsMembers) {
       await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(id, wm.user_id, wm.role);
     }
@@ -74,11 +89,17 @@ router.post('/', auth, async (req, res) => {
 
 router.get('/:id', auth, async (req, res) => {
   try {
-    const board = await db.prepare(`
+    let board = await db.prepare(`
       SELECT b.* FROM boards b
       JOIN board_members bm ON b.id = bm.board_id
       WHERE b.id = ? AND bm.user_id = ?
     `).get(req.params.id, req.user.id);
+
+    // Workspace admins can access any board without being in board_members
+    if (!board) {
+      const wsAdmin = await db.prepare(`SELECT 1 FROM workspace_members WHERE user_id = ? AND role = 'admin'`).get(req.user.id);
+      if (wsAdmin) board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(req.params.id);
+    }
 
     if (!board) return res.status(404).json({ error: 'Board not found' });
 
