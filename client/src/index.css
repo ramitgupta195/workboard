@@ -39,7 +39,8 @@ body {
   background: rgba(255,255,255,0.88);
   border: 1px solid rgba(255,255,255,0.5);
   border-radius: 10px;
-  overflow: hidden;
+  /* overflow:visible lets absolute dropdowns (color picker, menu) escape the column */
+  overflow: visible;
 }
 
 .column-cards {

@@ -49,7 +49,7 @@ export default function FilterBar({ members = [], filters, onFilterChange, onSea
   const hasActiveFilter = filters.priority || filters.assigneeId || filters.search;
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-black/10 backdrop-blur-sm">
+    <div className="relative z-[100] flex items-center gap-2 px-4 py-2 bg-black/10 backdrop-blur-sm">
       {/* Search */}
       <div className="relative">
         <div className="absolute inset-y-0 left-2.5 flex items-center pointer-events-none">
