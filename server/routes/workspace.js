@@ -24,6 +24,13 @@ router.get('/members', auth, async (req, res) => {
 // POST /api/workspace/invite
 router.post('/invite', auth, async (req, res) => {
   try {
+    const callerMembership = await db.prepare('SELECT role FROM workspace_members WHERE user_id = ?').get(req.user.id);
+    // Allow if caller is already a workspace admin OR has no workspace_members row yet (original app owner sending their first invite)
+    const callerBoards = await db.prepare('SELECT COUNT(*) as c FROM boards WHERE created_by = ?').get(req.user.id);
+    const isOriginalOwner = callerBoards?.c > 0;
+    if (!callerMembership && !isOriginalOwner) return res.status(403).json({ error: 'Only workspace admins can send invites' });
+    if (callerMembership && callerMembership.role !== 'admin') return res.status(403).json({ error: 'Only workspace admins can send invites' });
+
     const { email, role: rawRole, skipEmail = false } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
@@ -33,6 +40,12 @@ router.post('/invite', auth, async (req, res) => {
 
     await db.prepare('INSERT INTO workspace_invites (token, invited_email, role, invited_by, expires_at) VALUES (?, ?, ?, ?, ?)')
       .run(token, email.toLowerCase().trim(), role, req.user.id, expiresAt);
+
+    // Auto-enroll the inviter as workspace admin if not already a member
+    const inviterMembership = await db.prepare('SELECT 1 FROM workspace_members WHERE user_id = ?').get(req.user.id);
+    if (!inviterMembership) {
+      await db.prepare('INSERT INTO workspace_members (user_id, role, added_by) VALUES (?, ?, ?)').run(req.user.id, 'admin', req.user.id);
+    }
 
     const inviter = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.user.id);
     const inviteUrl = `${CLIENT_URL}/workspace-invite/${token}`;
@@ -114,6 +127,9 @@ router.post('/invite/:token/accept', auth, async (req, res) => {
 // DELETE /api/workspace/members/:userId
 router.delete('/members/:userId', auth, async (req, res) => {
   try {
+    const caller = await db.prepare('SELECT role FROM workspace_members WHERE user_id = ?').get(req.user.id);
+    if (!caller || caller.role !== 'admin') return res.status(403).json({ error: 'Only workspace admins can remove members' });
+    if (req.params.userId === req.user.id) return res.status(400).json({ error: 'Cannot remove yourself' });
     await db.prepare('DELETE FROM workspace_members WHERE user_id = ?').run(req.params.userId);
     res.json({ success: true });
   } catch (err) {

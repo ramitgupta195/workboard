@@ -15,13 +15,13 @@ const BACKGROUNDS = ['gradient-1','gradient-2','gradient-3','gradient-4','gradie
 router.get('/', auth, async (req, res) => {
   try {
     const boards = await db.prepare(`
-      SELECT b.*, u.name as creator_name, bm.role as user_role
+      SELECT b.*, u.name as creator_name, COALESCE(bm.role, 'owner') as user_role
       FROM boards b
-      JOIN board_members bm ON b.id = bm.board_id
       JOIN users u ON b.created_by = u.id
-      WHERE bm.user_id = ?
+      LEFT JOIN board_members bm ON b.id = bm.board_id AND bm.user_id = ?
+      WHERE bm.user_id = ? OR b.created_by = ?
       ORDER BY b.created_at DESC
-    `).all(req.user.id);
+    `).all(req.user.id, req.user.id, req.user.id);
 
     const result = await Promise.all(boards.map(async b => {
       const mc = await db.prepare('SELECT COUNT(*)::int as c FROM board_members WHERE board_id = ?').get(b.id);
@@ -142,6 +142,9 @@ router.delete('/:id', auth, async (req, res) => {
 
 router.post('/:id/members', auth, async (req, res) => {
   try {
+    const requester = await db.prepare('SELECT role FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, req.user.id);
+    if (!requester || !['owner', 'admin', 'manager'].includes(requester.role)) return res.status(403).json({ error: 'Insufficient permissions' });
+
     const { email } = req.body;
     const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (!user) return res.status(404).json({ error: 'User not found' });
@@ -149,7 +152,7 @@ router.post('/:id/members', auth, async (req, res) => {
     const existing = await db.prepare('SELECT 1 FROM board_members WHERE board_id = ? AND user_id = ?').get(req.params.id, user.id);
     if (existing) return res.status(400).json({ error: 'Already a member' });
 
-    const role = req.body.role && ['viewer','csm','member','admin'].includes(req.body.role) ? req.body.role : 'member';
+    const role = req.body.role && ['member', 'manager', 'admin'].includes(req.body.role) ? req.body.role : 'member';
     await db.prepare('INSERT INTO board_members (board_id, user_id, role) VALUES (?, ?, ?)').run(req.params.id, user.id, role);
     const member = await db.prepare('SELECT id, name, email, avatar_color FROM users WHERE id = ?').get(user.id);
     res.json({ ...member, role });
